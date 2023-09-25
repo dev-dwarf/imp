@@ -1,6 +1,6 @@
 @echo off
-if not exist build mkdir build
-pushd build
+if not exist ..\build mkdir ..\build
+pushd ..\build
 
 copy ..\libs\SDL2.dll .\
 
