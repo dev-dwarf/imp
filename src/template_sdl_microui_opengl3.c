@@ -140,16 +140,24 @@ static void test_window(mu_Context *ctx) {
 }
 
 static void plot_window(mu_Context *ctx) {
+
+    Inputs imp_input = {
+        .mouse = {ctx->mouse_pos.x, ctx->mouse_pos.y},
+        .mouse_down = ctx->mouse_down,
+        .mouse_scroll = ctx->scroll_delta.y/30
+    };
+
+    imp_begin(imp, imp_input);
     if (mu_begin_window(ctx, "Plot Window", mu_rect(0, 0, 800, 600))) {
-        mu_layout_set_next(ctx, mu_rect(0, 0, 750, 520), true);
+        mu_layout_set_next(ctx, mu_rect(0, 0, 750, 520), 1);
         mu_Rect r = mu_layout_next(ctx);
         Rect impr = {.x = r.x, .y = r.y, .w = r.w, .h=r.h};
-        begin_plot(imp, impr);
-        update_mouse(imp, ctx->mouse_pos.x, ctx->mouse_pos.y, ctx->mouse_down, ctx->scroll_delta.y/30);
+        begin_plot(imp, impr, imp_str("Test 1"));
 
         end_plot(imp);
         mu_end_window(ctx);
     }
+    imp_end(imp);
 }
 
 static int uint8_slider(mu_Context *ctx, unsigned char *value, int low, int high) {
@@ -231,6 +239,10 @@ static int text_height(mu_Font font) {
     return r_get_text_height();
 }
 
+static int imp_text_width(const void *unused, const char *text, s32 len) {
+    return r_get_text_width(text, len);
+}
+
 ////////////////////////////////
 //~ Entry Point
 
@@ -247,9 +259,7 @@ int main(int argc, char **argv) {
 
     /* init imp */
     imp = malloc(sizeof(Context));
-    memset(imp, 0, sizeof(Context));
-    imp->mu = ctx;
-    imp->font_height = text_height(ctx->style->font);
+    imp_init(imp, imp_text_width, 0, text_height(ctx->style->font));
     
     /* main loop */
     for (;;) {
@@ -293,6 +303,36 @@ int main(int argc, char **argv) {
                 case MU_COMMAND_RECT: r_draw_rect(cmd->rect.rect, cmd->rect.color); break;
                 case MU_COMMAND_ICON: r_draw_icon(cmd->icon.id, cmd->icon.rect, cmd->icon.color); break;
                 case MU_COMMAND_CLIP: r_set_clip_rect(cmd->clip.rect); break;
+            }
+        }
+
+        Command c;
+        while (imp_next_command(imp, &c)) {
+            switch (c.type) {
+            case IMP_COMMAND_RECT: {
+                Rect r = c.rect.screen;
+                r_draw_rect((mu_Rect) { .x = r.x, .y = r.y, .w = r.w, .h = r.h }, PCAST(mu_Color, c.base.color));
+            } break;
+            case IMP_COMMAND_TEXT: {
+                Rect r = c.text.screen;
+                r_draw_text(c.text.text.str, (mu_Vec2){ .x = r.x, .y = r.y}, PCAST(mu_Color, c.base.color));
+            } break;
+            case IMP_COMMAND_DATA: {
+                /* TODO(lcf): this is just a test, should use imp methods to get datapoints  */
+                Data data = c.data.data;
+                mu_Color color = PCAST(mu_Color, data.color);
+                for (s32 i = 0; i < data.n; i++) {
+                    Vec2 p = {data.x[i], data.y[i]};
+                    if (point_in_rect(data.view, p)) {
+                        s32 s = 6;
+                        p = view_to_screen_raw(data.view, c.data.screen, p);
+                        mu_Rect r = {.x = p.x - s/2, .y = p.y - s/2, .w=s, .h=s};
+                        r_draw_rect(r, color);
+                    }
+                }
+                    
+            } break;
+            case IMP_COMMAND_CUSTOM: {} break;
             }
         }
         r_present();
