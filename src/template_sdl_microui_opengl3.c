@@ -245,6 +245,7 @@ static int imp_text_width(const void *unused, const char *text, s32 len) {
 
 ////////////////////////////////
 //~ Entry Point
+static b32 in_imp = 0;
 
 int main(int argc, char **argv) {
     /* init SDL and renderer */
@@ -307,7 +308,11 @@ int main(int argc, char **argv) {
         }
 
         Command c;
+       
+        in_imp = 1;
         while (imp_next_command(imp, &c)) {
+
+                       
             switch (c.type) {
             case IMP_COMMAND_RECT: {
                 Rect r = c.rect.screen;
@@ -324,7 +329,7 @@ int main(int argc, char **argv) {
                 for (s32 i = 0; i < data.n; i++) {
                     Vec2 p = {data.x[i], data.y[i]};
                     if (point_in_rect(data.view, p)) {
-                        s32 s = 6;
+                        s32 s = 2;
                         p = view_to_screen_raw(data.view, c.data.screen, p);
                         mu_Rect r = {.x = p.x - s/2, .y = p.y - s/2, .w=s, .h=s};
                         r_draw_rect(r, color);
@@ -335,6 +340,8 @@ int main(int argc, char **argv) {
             case IMP_COMMAND_CUSTOM: {} break;
             }
         }
+        in_imp = 0;
+        
         r_present();
     }
     
@@ -346,8 +353,8 @@ int main(int argc, char **argv) {
 
 #define BUFFER_SIZE 0xf0000
 
-static GLfloat   tex_buf[BUFFER_SIZE *  8];
-static GLfloat  vert_buf[BUFFER_SIZE *  8];
+static GLfloat   tex_buf[BUFFER_SIZE *  2*4];
+static GLfloat  vert_buf[BUFFER_SIZE *  3*4];
 static GLubyte color_buf[BUFFER_SIZE * 16];
 static GLuint  index_buf[BUFFER_SIZE *  6];
 
@@ -356,6 +363,7 @@ static int height = 600;
 static int buf_idx;
 
 static SDL_Window *window;
+
 
 
 void r_init(void) {
@@ -398,12 +406,22 @@ static void flush(void) {
     glOrtho(0.0f, width, height, 0.0f, -1.0f, +1.0f);
     glMatrixMode(GL_MODELVIEW);
     glPushMatrix();
-    glLoadIdentity();
+    glLoadMatrixf(imp->first_plot->camera.Elements);
+    glMatrixMode(GL_MODELVIEW);
+    
+    if (in_imp) {
+        /* glPushMatrix(); */
+        /* glLoadMatrixf(imp->first_plot->/\* view_to_screen *\/.Elements); */
+    }
     
     glTexCoordPointer(2, GL_FLOAT, 0, tex_buf);
     glVertexPointer(2, GL_FLOAT, 0, vert_buf);
     glColorPointer(4, GL_UNSIGNED_BYTE, 0, color_buf);
     glDrawElements(GL_TRIANGLES, buf_idx * 6, GL_UNSIGNED_INT, index_buf);
+
+    if (in_imp) {
+        /* glPopMatrix(); */
+    }
     
     glMatrixMode(GL_MODELVIEW);
     glPopMatrix();

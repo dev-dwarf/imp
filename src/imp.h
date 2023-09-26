@@ -41,6 +41,9 @@
    - return to original view after panning/zooming 
 */
 
+
+#include "third_party/HandmadeMath.h"
+
 /* TODO(lcf): prefix everything with an imp_ namespace */
 /* TODO(lcf): we can remove these typedefs when the jam is over. just for my familiarity */
 typedef unsigned long u64;
@@ -72,8 +75,8 @@ str imp_str(char *s) {
 
 typedef u32 ID;
 
-typedef union Color Color;
-union Color {
+typedef union imp_Color imp_Color;
+union imp_Color {
     struct { u8 r, g, b, a; };
     u32 raw;
 };
@@ -98,9 +101,9 @@ struct Data {
     f32 *y;
     f32 *z;
     Rect view;
-    Color color;
-    Color line_color;
-    Color fill_color;
+    imp_Color color;
+    imp_Color line_color;
+    imp_Color fill_color;
 };
 
 enum {
@@ -112,6 +115,17 @@ enum {
 
 #define IMP_DATA_DEFAULT_FLAGS (IMP_DATA_LINES)
 
+#define IMP_PLOT_DRAW_X_AXIS (1 << 2)
+#define IMP_PLOT_DRAW_Y_AXIS (1 << 3)
+#define IMP_PLOT_DRAW_Z_AXIS (1 << 4)
+#define IMP_PLOT_DRAW_XY_GRID (1 << 5)
+#define IMP_PLOT_DRAW_YZ_GRID (1 << 6)
+#define IMP_PLOT_DRAW_ZX_GRID (1 << 7)
+#define IMP_PLOT_DRAW_ALL_AXES (IMP_PLOT_DRAW_X_AXIS | IMP_PLOT_DRAW_Y_AXIS | IMP_PLOT_DRAW_Z_AXIS)
+#define IMP_PLOT_DRAW_ALL_GRID (IMP_PLOT_DRAW_XY_GRID | IMP_PLOT_DRAW_YZ_GRID | IMP_PLOT_DRAW_ZX_GRID)
+#define IMP_PLOT_DRAW_ALL_3D (IMP_PLOT_DRAW_ALL_AXES | IMP_PLOT_DRAW_ALL_GRID)
+#define IMP_PLOT_DRAW_ALL_2D (IMP_PLOT_DRAW_X_AXIS | IMP_PLOT_DRAW_Y_AXIS | IMP_PLOT_DRAW_XY_GRID)
+
 #define IMP_MAX_DATA 8
 typedef struct Plot Plot;
 struct Plot {
@@ -119,6 +133,15 @@ struct Plot {
     Rect view;
     Rect target_view;
     Data data[IMP_MAX_DATA];
+
+    HMM_Vec3 camera_pos;
+    HMM_Vec3 camera_target;
+    HMM_Vec3 camera_up;
+    HMM_Mat4 camera;
+    HMM_Mat4 view_to_screen;
+    HMM_Mat4 screen_to_view;
+
+    u32 flags;
 
     Vec2 mouse;
     Vec2 last_mouse;
@@ -136,7 +159,7 @@ typedef struct BaseCommand BaseCommand;
 struct BaseCommand {
     s16 type;
     s16 plot;
-    Color color;
+    imp_Color color;
 };
 
 typedef struct RectCommand RectCommand;
@@ -200,7 +223,6 @@ struct Inputs {
 typedef struct Context Context;
 struct Context {
     Inputs input;
-
     
     s32 (*text_width_fun)(const void*, const char*, s32 len);
     const void *text_width_data;
@@ -328,6 +350,7 @@ void push_command(Context *imp, Command cmd) {
 }
 
 #include <stdarg.h>
+#include <stdio.h>
 str strfv(Context *imp, char *fmt, va_list args) {
     str result = (str){0};
     result.str = imp->char_buffer + imp->char_pos;
@@ -364,7 +387,7 @@ enum {
     COLOR_TABLE_SIZE = 0x100,
 };
 
-Color ColorTable[COLOR_TABLE_SIZE] = {
+imp_Color imp_ColorTable[COLOR_TABLE_SIZE] = {
     HEXCOLOR(0x0a030dff),
     HEXCOLOR(0xfffff7ff),
     HEXCOLOR(0x6a636dff),
@@ -375,7 +398,7 @@ Color ColorTable[COLOR_TABLE_SIZE] = {
     HEXCOLOR(0xffcf00ff),
 };
 
-Color color(u32 ind) { return ColorTable[ind]; };
+imp_Color color(u32 ind) { return imp_ColorTable[ind]; };
 
 Vec2 view_to_screen_raw(Rect view, Rect screen, Vec2 p) {
     return (Vec2){
@@ -392,7 +415,7 @@ Vec2 screen_to_view(Plot *plot, Vec2 p) {
 }
 
 /* TODO move to command buffer read by backend */
-void draw_rect(Context *imp, Rect r, Color c) {
+void draw_rect(Context *imp, Rect r, imp_Color c) {
     RectCommand cmd = {
         .base.type = IMP_COMMAND_RECT,
         .base.color = c,
@@ -401,11 +424,11 @@ void draw_rect(Context *imp, Rect r, Color c) {
     push_command(imp, (Command){.rect = cmd});
 }
 
-void draw_grid_line(Context *imp, Vec2 start, Vec2 end, Color c) {
+void draw_grid_line(Context *imp, Vec2 start, Vec2 end, imp_Color c) {
     draw_rect(imp, (Rect){ .x = start.x, .y = end.y, .w = MAX(1,end.x-start.x), .h=MAX(1,start.y-end.y)}, c);
 }
 
-void draw_text(Context *imp, Vec2 pos, str text, f32 w, Color c) {
+void draw_text(Context *imp, Vec2 pos, str text, f32 w, imp_Color c) {
     if (!w) {
         w = imp->text_width_fun(imp->text_width_data, text.str, text.len);
     }
@@ -473,6 +496,8 @@ void imp_begin(Context *imp, Inputs frame_input) {
 
     imp->first_plot = 0;
     imp->prev_plot = 0;
+
+    imp->counter++;
 }
 
 Plot * begin_plot(Context *imp, Rect r, str title) {
@@ -498,18 +523,31 @@ Plot * begin_plot(Context *imp, Rect r, str title) {
         plot->target_view = plot->view;
 
         /* TODO(lcf): remove, just using to test pushing some data */
-        s32 n = 0xe0000;
+        s32 n = 0x2000;
         plot->data[0].n = n;
         plot->data[0].x = malloc(n*sizeof(f32));
         plot->data[0].y = malloc(n*sizeof(f32));
+        plot->data[0].z = malloc(n*sizeof(f32));
 
         for (s32 i = 0; i < n; i++) {
             plot->data[0].x[i] = (i-n/2)*0.1;
             plot->data[0].y[i] = 5.0*sin(i);
+            plot->data[0].z[i] = 0;
         }
         
-        plot->data[0].color = (Color)HEXCOLOR(0xff0059ff);
+        plot->data[0].color = (imp_Color)HEXCOLOR(0xff0059ff);
+        plot->flags = IMP_PLOT_DRAW_ALL_3D;
+
+        plot->camera_pos = HMM_V3(1, 1, 1);
+        plot->camera_target = HMM_V3(0, 0, 0);
+        plot->camera_up = HMM_V3(0, 1, 1);
+        plot->camera = HMM_LookAt_RH(plot->camera_pos, plot->camera_target, plot->camera_up);
+        plot->view_to_screen = HMM_Perspective_RH_NO(90, plot->screen.w/plot->screen.h, 0.0001, 1000);
+        plot->screen_to_view = HMM_InvPerspective_RH(plot->view_to_screen);
+        plot->view_to_screen = HMM_MulM4(plot->view_to_screen, plot->camera);
     }
+
+    plot->camera = HMM_Rotate_RH(imp->counter*0.001, HMM_V3(0, 0, 1));
 
     plot->view.h = plot->view.w * (plot->screen.h / plot->screen.w);
     plot->target_view.h = plot->target_view.w * (plot->screen.h / plot->screen.w);
