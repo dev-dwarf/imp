@@ -69,6 +69,12 @@ str imp_str(char *s) {
     return out;
 }
 
+#ifndef IMP_VSNSPRINTF
+#define STB_SPRINTF_IMPLEMENTATION
+#include "third_party/stb_sprintf.h"
+#define IMP_VSNSPRINTF stbsp_vsnprintf
+#endif
+
 #define MAX(a,b) (((a) > (b))? (a) : (b))
 #define ASSERT(c) do { if (!(c)) { (*(int*)0=0); }} while (0);
 #define PCAST(type, p) (*((type*)&p))
@@ -354,7 +360,7 @@ void push_command(Context *imp, Command cmd) {
 str strfv(Context *imp, char *fmt, va_list args) {
     str result = (str){0};
     result.str = imp->char_buffer + imp->char_pos;
-    result.len = vsprintf_s(imp->char_buffer + imp->char_pos, IMP_CHAR_BUFFER_SIZE - imp->char_pos, fmt, args);
+    result.len = IMP_VSNSPRINTF(imp->char_buffer + imp->char_pos, IMP_CHAR_BUFFER_SIZE - imp->char_pos, fmt, args);
     imp->char_pos += result.len+1; /* include null terminator */
     return result;
 }

@@ -142,7 +142,7 @@ int main(void)
 
     SetConfigFlags(FLAG_MSAA_4X_HINT);
     InitWindow(screenWidth, screenHeight, "imp");
-    DisableCursor();
+    /* DisableCursor(); */
     
     SetTargetFPS(60);
 
@@ -194,7 +194,7 @@ int main(void)
         }
 
         BeginDrawing();
-        ClearBackground(BLACK);
+        ClearBackground(WHITE);
         
         BeginMode3D((Camera){0});
         Matrix cam_proj = rlGetMatrixProjection();
@@ -208,8 +208,7 @@ int main(void)
         rlSetMatrixModelview(PCAST(Matrix, model));
         rlMultMatrixf(camera.Elements[0]);
 
-        /* ImpDrawGrid(PlotMin, PlotMax, rot_pos, IMP_PLOT_DRAW_GRID_XY); */
-        DrawText("test!", 0, 0, 12, RED);
+        ImpDrawGrid(PlotMin, PlotMax, rot_pos, IMP_PLOT_DRAW_ALL_3D);
         
         EndMode3D();
         EndDrawing();
