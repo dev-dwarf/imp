@@ -23,8 +23,8 @@ extern Rectangle atlas[256];
 #include "imp.h"
 
 void ImpDrawGridLines(HMM_Vec3 start, HMM_Vec3 end, HMM_Vec3 sweep, Color color, s32 n) {
-    HMM_Vec3 step = HMM_DivV3F(sweep, n-1);
-    for (s32 i = 0; i < n; i++) {
+    HMM_Vec3 step = HMM_DivV3F(sweep, n);
+    for (s32 i = 0; i <= n; i++) {
         DrawLine3D(PCAST(Vector3, start), PCAST(Vector3, end), color);
         start = HMM_AddV3(start, step);
         end = HMM_AddV3(end, step);
@@ -38,34 +38,35 @@ void ImpDrawGrid(HMM_Vec3 min, HMM_Vec3 max, HMM_Vec3 camera, u32 flags) {
 
     HMM_Vec3 center = HMM_LerpV3(min, 0.5, max);
 
-#define COLOR_GRID_LINE WHITE
-#define N_GRID_LINES 50
+    color = WHITE;
+#define COLOR_GRID_LINE LIGHTGRAY
+#define N_GRID_LINES 8
 
     if (flags & IMP_PLOT_DRAW_GRID_XY) {
         /* rlColor4ub(0xff, color.g, color.b, color.a); */
         rlColor4ub(color.r, color.g, color.b, color.a);
         if (camera.Z > center.Z) {
             /* Bottom */
-            rlBegin(RL_TRIANGLES);
-            rlVertex3f(min.X, min.Y, min.Z);
-            rlVertex3f(max.X, min.Y, min.Z);
-            rlVertex3f(max.X, max.Y, min.Z);
-            rlVertex3f(min.X, min.Y, min.Z);
-            rlVertex3f(max.X, max.Y, min.Z);
-            rlVertex3f(min.X, max.Y, min.Z);
-            rlEnd();
+            /* rlBegin(RL_TRIANGLES); */
+            /* rlVertex3f(min.X, min.Y, min.Z); */
+            /* rlVertex3f(max.X, min.Y, min.Z); */
+            /* rlVertex3f(max.X, max.Y, min.Z); */
+            /* rlVertex3f(min.X, min.Y, min.Z); */
+            /* rlVertex3f(max.X, max.Y, min.Z); */
+            /* rlVertex3f(min.X, max.Y, min.Z); */
+            /* rlEnd(); */
             ImpDrawGridLines(min, HMM_V3(min.X, max.Y, min.Z), HMM_V3(max.X-min.X, 0, 0), COLOR_GRID_LINE, N_GRID_LINES);
             ImpDrawGridLines(min, HMM_V3(max.X, min.Y, min.Z), HMM_V3(0, max.Y-min.Y, 0), COLOR_GRID_LINE, N_GRID_LINES);
         } else {
             /* Top */
-            rlBegin(RL_TRIANGLES);
-            rlVertex3f(max.X, max.Y, max.Z);
-            rlVertex3f(min.X, min.Y, max.Z);
-            rlVertex3f(min.X, max.Y, max.Z);
-            rlVertex3f(max.X, max.Y, max.Z);
-            rlVertex3f(max.X, min.Y, max.Z);
-            rlVertex3f(min.X, min.Y, max.Z);
-            rlEnd();
+            /* rlBegin(RL_TRIANGLES); */
+            /* rlVertex3f(max.X, max.Y, max.Z); */
+            /* rlVertex3f(min.X, min.Y, max.Z); */
+            /* rlVertex3f(min.X, max.Y, max.Z); */
+            /* rlVertex3f(max.X, max.Y, max.Z); */
+            /* rlVertex3f(max.X, min.Y, max.Z); */
+            /* rlVertex3f(min.X, min.Y, max.Z); */
+            /* rlEnd(); */
             ImpDrawGridLines(max, HMM_V3(max.X, min.Y, max.Z), HMM_V3(min.X-max.X, 0, 0), COLOR_GRID_LINE, N_GRID_LINES);
             ImpDrawGridLines(max, HMM_V3(min.X, max.Y, max.Z), HMM_V3(0, min.Y-max.Y, 0), COLOR_GRID_LINE, N_GRID_LINES);
         }
@@ -77,26 +78,26 @@ void ImpDrawGrid(HMM_Vec3 min, HMM_Vec3 max, HMM_Vec3 camera, u32 flags) {
         rlColor4ub(color.r, color.g, color.b, color.a);
         if (camera.Y > center.Y) {
             /* Right */
-            rlBegin(RL_TRIANGLES);
-            rlVertex3f(min.X, min.Y, min.Z);
-            rlVertex3f(min.X, min.Y, max.Z);
-            rlVertex3f(max.X, min.Y, max.Z);
-            rlVertex3f(min.X, min.Y, min.Z);
-            rlVertex3f(max.X, min.Y, max.Z);
-            rlVertex3f(max.X, min.Y, min.Z);
-            rlEnd();
+            /* rlBegin(RL_TRIANGLES); */
+            /* rlVertex3f(min.X, min.Y, min.Z); */
+            /* rlVertex3f(min.X, min.Y, max.Z); */
+            /* rlVertex3f(max.X, min.Y, max.Z); */
+            /* rlVertex3f(min.X, min.Y, min.Z); */
+            /* rlVertex3f(max.X, min.Y, max.Z); */
+            /* rlVertex3f(max.X, min.Y, min.Z); */
+            /* rlEnd(); */
             ImpDrawGridLines(min, HMM_V3(min.X, min.Y, max.Z), HMM_V3(max.X-min.X, 0, 0), COLOR_GRID_LINE, N_GRID_LINES);
             ImpDrawGridLines(min, HMM_V3(max.X, min.Y, min.Z), HMM_V3(0, 0, max.Z-min.Z), COLOR_GRID_LINE, N_GRID_LINES);
         } else {
             /* Left */
-            rlBegin(RL_TRIANGLES);
-            rlVertex3f(max.X, max.Y, max.Z);
-            rlVertex3f(min.X, max.Y, min.Z);
-            rlVertex3f(max.X, max.Y, min.Z);
-            rlVertex3f(max.X, max.Y, max.Z);
-            rlVertex3f(min.X, max.Y, max.Z);
-            rlVertex3f(min.X, max.Y, min.Z);
-            rlEnd();
+            /* rlBegin(RL_TRIANGLES); */
+            /* rlVertex3f(max.X, max.Y, max.Z); */
+            /* rlVertex3f(min.X, max.Y, min.Z); */
+            /* rlVertex3f(max.X, max.Y, min.Z); */
+            /* rlVertex3f(max.X, max.Y, max.Z); */
+            /* rlVertex3f(min.X, max.Y, max.Z); */
+            /* rlVertex3f(min.X, max.Y, min.Z); */
+            /* rlEnd(); */
             ImpDrawGridLines(max, HMM_V3(max.X, max.Y, min.Z), HMM_V3(min.X-max.X, 0, 0), COLOR_GRID_LINE, N_GRID_LINES);
             ImpDrawGridLines(max, HMM_V3(min.X, max.Y, max.Z), HMM_V3(0, 0, min.Z-max.Z), COLOR_GRID_LINE, N_GRID_LINES);
         }
@@ -107,26 +108,26 @@ void ImpDrawGrid(HMM_Vec3 min, HMM_Vec3 max, HMM_Vec3 camera, u32 flags) {
         rlColor4ub(color.r, color.g, color.b, color.a);
         if (camera.X > center.X) {
             /* Near */
-            rlBegin(RL_TRIANGLES);
-            rlVertex3f(min.X, min.Y, min.Z);
-            rlVertex3f(min.X, max.Y, min.Z);
-            rlVertex3f(min.X, max.Y, max.Z);
-            rlVertex3f(min.X, min.Y, min.Z);
-            rlVertex3f(min.X, max.Y, max.Z);
-            rlVertex3f(min.X, min.Y, max.Z);
-            rlEnd();
+            /* rlBegin(RL_TRIANGLES); */
+            /* rlVertex3f(min.X, min.Y, min.Z); */
+            /* rlVertex3f(min.X, max.Y, min.Z); */
+            /* rlVertex3f(min.X, max.Y, max.Z); */
+            /* rlVertex3f(min.X, min.Y, min.Z); */
+            /* rlVertex3f(min.X, max.Y, max.Z); */
+            /* rlVertex3f(min.X, min.Y, max.Z); */
+            /* rlEnd(); */
             ImpDrawGridLines(min, HMM_V3(min.X, min.Y, max.Z), HMM_V3(0, max.Y-min.Y, 0), COLOR_GRID_LINE, N_GRID_LINES);
             ImpDrawGridLines(min, HMM_V3(min.X, max.Y, min.Z), HMM_V3(0, 0, max.Z-min.Z), COLOR_GRID_LINE, N_GRID_LINES);
         } else {
             /* Far */
-            rlBegin(RL_TRIANGLES);
-            rlVertex3f(max.X, max.Y, max.Z);
-            rlVertex3f(max.X, min.Y, min.Z);
-            rlVertex3f(max.X, min.Y, max.Z);
-            rlVertex3f(max.X, max.Y, max.Z);
-            rlVertex3f(max.X, max.Y, min.Z);
-            rlVertex3f(max.X, min.Y, min.Z);
-            rlEnd();
+            /* rlBegin(RL_TRIANGLES); */
+            /* rlVertex3f(max.X, max.Y, max.Z); */
+            /* rlVertex3f(max.X, min.Y, min.Z); */
+            /* rlVertex3f(max.X, min.Y, max.Z); */
+            /* rlVertex3f(max.X, max.Y, max.Z); */
+            /* rlVertex3f(max.X, max.Y, min.Z); */
+            /* rlVertex3f(max.X, min.Y, min.Z); */
+            /* rlEnd(); */
             ImpDrawGridLines(max, HMM_V3(max.X, max.Y, min.Z), HMM_V3(0, min.Y-max.Y, 0), COLOR_GRID_LINE, N_GRID_LINES);
             ImpDrawGridLines(max, HMM_V3(max.X, min.Y, max.Z), HMM_V3(0, 0, min.Z-max.Z), COLOR_GRID_LINE, N_GRID_LINES);
         }
@@ -146,8 +147,8 @@ int main(void)
     
     SetTargetFPS(60);
 
-    HMM_Vec3 PlotMax = {5, 5, 2};
-    HMM_Vec3 PlotMin = {-5, -5, -5};
+    HMM_Vec3 PlotMax = {2, 5, 2};
+    HMM_Vec3 PlotMin = {-2, -5, -5};
     HMM_Vec3 PlotSize = HMM_SubV3(PlotMax, PlotMin);
     HMM_Vec3 PlotCenter = HMM_LerpV3(PlotMax, 0.5, PlotMin);
     HMM_Vec3 CameraEye = {-8, -8, 8};
