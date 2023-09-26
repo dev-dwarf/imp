@@ -26,8 +26,12 @@ void ImpDrawGrid(HMM_Vec3 min, HMM_Vec3 max, HMM_Vec3 camera, u32 flags) {
 
     HMM_Vec3 center = HMM_LerpV3(min, 0.5, max);
 
+#define COLOR_GRID_LINE WHITE
+#define N_GRID_LINES 50
+
     if (flags & IMP_PLOT_DRAW_XY_GRID) {
-        rlColor4ub(0xff, color.g, color.b, color.a);
+        /* rlColor4ub(0xff, color.g, color.b, color.a); */
+        rlColor4ub(color.r, color.g, color.b, color.a);
         if (camera.Z > center.Z) {
             /* Bottom */
             rlBegin(RL_TRIANGLES);
@@ -38,8 +42,8 @@ void ImpDrawGrid(HMM_Vec3 min, HMM_Vec3 max, HMM_Vec3 camera, u32 flags) {
             rlVertex3f(max.X, max.Y, min.Z);
             rlVertex3f(min.X, max.Y, min.Z);
             rlEnd();
-            ImpDrawGridLines(min, HMM_V3(min.X, max.Y, min.Z), HMM_V3(max.X-min.X, 0, 0), BLACK, 10);
-            ImpDrawGridLines(min, HMM_V3(max.X, min.Y, min.Z), HMM_V3(0, max.Y-min.Y, 0), BLACK, 10);
+            ImpDrawGridLines(min, HMM_V3(min.X, max.Y, min.Z), HMM_V3(max.X-min.X, 0, 0), COLOR_GRID_LINE, N_GRID_LINES);
+            ImpDrawGridLines(min, HMM_V3(max.X, min.Y, min.Z), HMM_V3(0, max.Y-min.Y, 0), COLOR_GRID_LINE, N_GRID_LINES);
         } else {
             /* Top */
             rlBegin(RL_TRIANGLES);
@@ -50,14 +54,15 @@ void ImpDrawGrid(HMM_Vec3 min, HMM_Vec3 max, HMM_Vec3 camera, u32 flags) {
             rlVertex3f(max.X, min.Y, max.Z);
             rlVertex3f(min.X, min.Y, max.Z);
             rlEnd();
-            ImpDrawGridLines(max, HMM_V3(max.X, min.Y, max.Z), HMM_V3(min.X-max.X, 0, 0), BLACK, 10);
-            ImpDrawGridLines(max, HMM_V3(min.X, max.Y, max.Z), HMM_V3(0, min.Y-max.Y, 0), BLACK, 10);
+            ImpDrawGridLines(max, HMM_V3(max.X, min.Y, max.Z), HMM_V3(min.X-max.X, 0, 0), COLOR_GRID_LINE, N_GRID_LINES);
+            ImpDrawGridLines(max, HMM_V3(min.X, max.Y, max.Z), HMM_V3(0, min.Y-max.Y, 0), COLOR_GRID_LINE, N_GRID_LINES);
         }
     }
 
 
     if (flags & IMP_PLOT_DRAW_ZX_GRID) {
-        rlColor4ub(color.r, 0xff, color.b, color.a);
+        /* rlColor4ub(color.r, 0xff, color.b, color.a); */
+        rlColor4ub(color.r, color.g, color.b, color.a);
         if (camera.Y > center.Y) {
             /* Right */
             rlBegin(RL_TRIANGLES);
@@ -68,8 +73,8 @@ void ImpDrawGrid(HMM_Vec3 min, HMM_Vec3 max, HMM_Vec3 camera, u32 flags) {
             rlVertex3f(max.X, min.Y, max.Z);
             rlVertex3f(max.X, min.Y, min.Z);
             rlEnd();
-            ImpDrawGridLines(min, HMM_V3(min.X, min.Y, max.Z), HMM_V3(max.X-min.X, 0, 0), BLACK, 10);
-            ImpDrawGridLines(min, HMM_V3(max.X, min.Y, min.Z), HMM_V3(0, 0, max.Z-min.Z), BLACK, 10);
+            ImpDrawGridLines(min, HMM_V3(min.X, min.Y, max.Z), HMM_V3(max.X-min.X, 0, 0), COLOR_GRID_LINE, N_GRID_LINES);
+            ImpDrawGridLines(min, HMM_V3(max.X, min.Y, min.Z), HMM_V3(0, 0, max.Z-min.Z), COLOR_GRID_LINE, N_GRID_LINES);
         } else {
             /* Left */
             rlBegin(RL_TRIANGLES);
@@ -80,13 +85,14 @@ void ImpDrawGrid(HMM_Vec3 min, HMM_Vec3 max, HMM_Vec3 camera, u32 flags) {
             rlVertex3f(min.X, max.Y, max.Z);
             rlVertex3f(min.X, max.Y, min.Z);
             rlEnd();
-            ImpDrawGridLines(max, HMM_V3(max.X, max.Y, min.Z), HMM_V3(min.X-max.X, 0, 0), BLACK, 10);
-            ImpDrawGridLines(max, HMM_V3(min.X, max.Y, max.Z), HMM_V3(0, 0, min.Z-max.Z), BLACK, 10);
+            ImpDrawGridLines(max, HMM_V3(max.X, max.Y, min.Z), HMM_V3(min.X-max.X, 0, 0), COLOR_GRID_LINE, N_GRID_LINES);
+            ImpDrawGridLines(max, HMM_V3(min.X, max.Y, max.Z), HMM_V3(0, 0, min.Z-max.Z), COLOR_GRID_LINE, N_GRID_LINES);
         }
     }
 
     if (flags & IMP_PLOT_DRAW_YZ_GRID) {
-        rlColor4ub(color.r, color.g, 0xff, color.a);
+        /* rlColor4ub(color.r, color.g, 0xff, color.a); */
+        rlColor4ub(color.r, color.g, color.b, color.a);
         if (camera.X > center.X) {
             /* Near */
             rlBegin(RL_TRIANGLES);
@@ -97,8 +103,8 @@ void ImpDrawGrid(HMM_Vec3 min, HMM_Vec3 max, HMM_Vec3 camera, u32 flags) {
             rlVertex3f(min.X, max.Y, max.Z);
             rlVertex3f(min.X, min.Y, max.Z);
             rlEnd();
-            ImpDrawGridLines(min, HMM_V3(min.X, min.Y, max.Z), HMM_V3(0, max.Y-min.Y, 0), BLACK, 10);
-            ImpDrawGridLines(min, HMM_V3(min.X, max.Y, min.Z), HMM_V3(0, 0, max.Z-min.Z), BLACK, 10);
+            ImpDrawGridLines(min, HMM_V3(min.X, min.Y, max.Z), HMM_V3(0, max.Y-min.Y, 0), COLOR_GRID_LINE, N_GRID_LINES);
+            ImpDrawGridLines(min, HMM_V3(min.X, max.Y, min.Z), HMM_V3(0, 0, max.Z-min.Z), COLOR_GRID_LINE, N_GRID_LINES);
         } else {
             /* Far */
             rlBegin(RL_TRIANGLES);
@@ -109,8 +115,8 @@ void ImpDrawGrid(HMM_Vec3 min, HMM_Vec3 max, HMM_Vec3 camera, u32 flags) {
             rlVertex3f(max.X, max.Y, min.Z);
             rlVertex3f(max.X, min.Y, min.Z);
             rlEnd();
-            ImpDrawGridLines(max, HMM_V3(max.X, max.Y, min.Z), HMM_V3(0, min.Y-max.Y, 0), BLACK, 10);
-            ImpDrawGridLines(max, HMM_V3(max.X, min.Y, max.Z), HMM_V3(0, 0, min.Z-max.Z), BLACK, 10);
+            ImpDrawGridLines(max, HMM_V3(max.X, max.Y, min.Z), HMM_V3(0, min.Y-max.Y, 0), COLOR_GRID_LINE, N_GRID_LINES);
+            ImpDrawGridLines(max, HMM_V3(max.X, min.Y, max.Z), HMM_V3(0, 0, min.Z-max.Z), COLOR_GRID_LINE, N_GRID_LINES);
         }
     }
     
@@ -119,16 +125,16 @@ void ImpDrawGrid(HMM_Vec3 min, HMM_Vec3 max, HMM_Vec3 camera, u32 flags) {
 
 int main(void)
 {
-    const int screenWidth = 400;
-    const int screenHeight = 400;
+    const int screenWidth = 800;
+    const int screenHeight = 800;
 
     SetConfigFlags(FLAG_MSAA_4X_HINT);
-    InitWindow(screenWidth, screenHeight, "raylib [core] example - basic window");
+    InitWindow(screenWidth, screenHeight, "imp");
     DisableCursor();
     
     SetTargetFPS(60);
 
-    HMM_Vec3 PlotMax = {5, 5, 5};
+    HMM_Vec3 PlotMax = {5, 5, 2};
     HMM_Vec3 PlotMin = {-5, -5, -5};
     HMM_Vec3 PlotSize = HMM_SubV3(PlotMax, PlotMin);
     HMM_Vec3 PlotCenter = HMM_LerpV3(PlotMax, 0.5, PlotMin);
