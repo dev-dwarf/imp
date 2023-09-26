@@ -1,3 +1,15 @@
+/* TODO(lcf, September 26, 2023)
+   - linux build
+   - 2d camera mode (top down ortho)
+   - 3d pan, zoom controls
+   - render axes near 0
+   - render labels
+   -- billboards, optionally with tilt to fit more
+   -- or 3d text as an option too https://www.raylib.com/examples/text/loader.html?name=text_draw_3d
+   -- seems like have to do all text as 3d anyway so look at above example.
+ */
+
+
 #include "third_party/raylib/raylib.h"
 #include "third_party/raylib/rlgl.h"
 #include "third_party/microui/microui.h"
@@ -29,7 +41,7 @@ void ImpDrawGrid(HMM_Vec3 min, HMM_Vec3 max, HMM_Vec3 camera, u32 flags) {
 #define COLOR_GRID_LINE WHITE
 #define N_GRID_LINES 50
 
-    if (flags & IMP_PLOT_DRAW_XY_GRID) {
+    if (flags & IMP_PLOT_DRAW_GRID_XY) {
         /* rlColor4ub(0xff, color.g, color.b, color.a); */
         rlColor4ub(color.r, color.g, color.b, color.a);
         if (camera.Z > center.Z) {
@@ -60,7 +72,7 @@ void ImpDrawGrid(HMM_Vec3 min, HMM_Vec3 max, HMM_Vec3 camera, u32 flags) {
     }
 
 
-    if (flags & IMP_PLOT_DRAW_ZX_GRID) {
+    if (flags & IMP_PLOT_DRAW_GRID_ZX) {
         /* rlColor4ub(color.r, 0xff, color.b, color.a); */
         rlColor4ub(color.r, color.g, color.b, color.a);
         if (camera.Y > center.Y) {
@@ -90,7 +102,7 @@ void ImpDrawGrid(HMM_Vec3 min, HMM_Vec3 max, HMM_Vec3 camera, u32 flags) {
         }
     }
 
-    if (flags & IMP_PLOT_DRAW_YZ_GRID) {
+    if (flags & IMP_PLOT_DRAW_GRID_YZ) {
         /* rlColor4ub(color.r, color.g, 0xff, color.a); */
         rlColor4ub(color.r, color.g, color.b, color.a);
         if (camera.X > center.X) {
@@ -196,7 +208,8 @@ int main(void)
         rlSetMatrixModelview(PCAST(Matrix, model));
         rlMultMatrixf(camera.Elements[0]);
 
-        ImpDrawGrid(PlotMin, PlotMax, rot_pos, IMP_PLOT_DRAW_ALL_GRID);
+        /* ImpDrawGrid(PlotMin, PlotMax, rot_pos, IMP_PLOT_DRAW_GRID_XY); */
+        DrawText("test!", 0, 0, 12, RED);
         
         EndMode3D();
         EndDrawing();
