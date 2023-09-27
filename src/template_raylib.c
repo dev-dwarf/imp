@@ -274,7 +274,8 @@ int main(void)
     
     while (!WindowShouldClose())   
     {
-
+        HMM_Vec3 CameraPos = CameraEye;
+        
         #define ANGLE_SENSITIVITY 0.01
         #define Z_SENSITIVITY 0.1
         #define ZOOM_SENSITIVITY 0.1
@@ -292,7 +293,7 @@ int main(void)
         zoom += -ZOOM_SENSITIVITY*scroll.y;
 
         HMM_Mat4 proj; {
-#define FOV 75*zoom
+#define FOV 75
 #define CULL_NEAR 0.01
 #define CULL_FAR 1000
             f64 aspect = (f64)screenWidth/(f64)screenHeight;
@@ -302,6 +303,7 @@ int main(void)
 
             if (IsKeyDown(KEY_SPACE)) {
                 proj = HMM_Perspective_RH_NO(HMM_AngleDeg(FOV), aspect, CULL_NEAR, CULL_FAR);
+                CameraPos = HMM_MulV3F(CameraPos, zoom);
             }
         }
 
@@ -314,7 +316,7 @@ int main(void)
         Matrix cam_proj = rlGetMatrixProjection();
         rlSetMatrixProjection(PCAST(Matrix, proj));
 
-        HMM_Mat4 camera = HMM_LookAt_RH(CameraEye, PlotCenter, Up);
+        HMM_Mat4 camera = HMM_LookAt_RH(CameraPos, PlotCenter, Up);
         HMM_Mat4 model = HMM_Rotate_RH(angle, Up);
 
         HMM_Mat4 modelview_inv = HMM_MulM4(model, HMM_InvGeneralM4(camera));
