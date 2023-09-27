@@ -9,7 +9,6 @@
    -- seems like have to do all text as 3d anyway so look at above example.
  */
 
-
 #include "third_party/raylib/raylib.h"
 #include "third_party/raylib/rlgl.h"
 #include "third_party/microui/microui.h"
@@ -17,8 +16,9 @@
 enum { ATLAS_WHITE = MU_ICON_MAX, ATLAS_FONT };
 enum { ATLAS_WIDTH = 128, ATLAS_HEIGHT = 128 };
 
-extern unsigned char atlas_texture[ATLAS_WIDTH * ATLAS_HEIGHT];
-extern Rectangle atlas[256];
+extern unsigned char atlas_data[ATLAS_WIDTH * ATLAS_HEIGHT];
+extern Rectangle atlas_rect[256];
+static Texture atlas;
 
 #include "imp.h"
 
@@ -31,6 +31,56 @@ void ImpDrawGridLines(HMM_Vec3 start, HMM_Vec3 end, HMM_Vec3 sweep, Color color,
     }
 }
 
+typedef struct ImpDrawPlane ImpDrawPlane;
+struct ImpDrawPlane {
+    HMM_Vec3 bl;
+    HMM_Vec3 r;
+    HMM_Vec3 u;
+};
+inline void ImpDrawVertex(HMM_Vec3 v, HMM_Vec2 t) {
+    rlTexCoord2f(t.X, t.Y);
+    rlVertex3f(v.X, v.Y, v.Z);
+}
+
+inline void ImpDrawTexQuadFromAtlas(ImpDrawPlane p, Rectangle tex, Color color) {
+    rlSetTexture(atlas.id);
+    HMM_Vec3 vbl = p.bl;
+    HMM_Vec3 vbr = HMM_AddV3(p.bl, p.r);
+    HMM_Vec3 vtl = HMM_AddV3(p.bl, p.u);
+    HMM_Vec3 vtr = HMM_AddV3(vtl , p.r);
+
+    HMM_Vec2 ttl = HMM_V2((f32)tex.x/ATLAS_WIDTH, (f32)tex.y/ATLAS_HEIGHT);
+    HMM_Vec2 ttr = HMM_V2(ttl.X+(f32)tex.width/ATLAS_WIDTH, ttl.Y);
+    HMM_Vec2 tbl = HMM_V2(ttl.X, ttl.Y+(f32)tex.height/ATLAS_HEIGHT);
+    HMM_Vec2 tbr = HMM_V2(ttr.X, tbl.Y);
+
+    rlBegin(RL_QUADS);
+    rlColor4ub(color.r, color.g, color.b, color.a);
+    ImpDrawVertex(vtl, ttl);
+    ImpDrawVertex(vbl, tbl);
+    ImpDrawVertex(vbr, tbr);
+        
+    ImpDrawVertex(vtr, ttr);
+ 
+    /* ImpDrawVertex(vbl, tbl); */
+    /* ImpDrawVertex(vbr, tbr); */
+    /* ImpDrawVertex(vtr, ttr); */
+    rlEnd();
+}
+
+void ImpDrawText3D(ImpDrawPlane plane, str text, Color color, f32 size) {
+    plane.r = HMM_MulV3F(plane.r, size);
+    plane.u = HMM_MulV3F(plane.u, size);
+    for (s32 i = 0; i < text.len; i++) {
+        Rectangle r = atlas_rect[ATLAS_FONT + text.str[i]];
+        ImpDrawPlane p = plane;
+        p.r = HMM_MulV3F(p.r, r.width);
+        p.u = HMM_MulV3F(p.u, r.height);
+        ImpDrawTexQuadFromAtlas(p, r, color);
+        plane.bl = HMM_AddV3(plane.bl, p.r);
+    }
+}
+
 void ImpDrawGrid(HMM_Vec3 min, HMM_Vec3 max, HMM_Vec3 camera, u32 flags) {
 
     Color color = {.r = 0xdd, .g = 0xdd, .b = 0xdd, .a = 0xff};
@@ -38,102 +88,100 @@ void ImpDrawGrid(HMM_Vec3 min, HMM_Vec3 max, HMM_Vec3 camera, u32 flags) {
 
     HMM_Vec3 center = HMM_LerpV3(min, 0.5, max);
 
-    color = WHITE;
+    color = BLACK;
+#define COLOR_AXES BLACK
 #define COLOR_GRID_LINE LIGHTGRAY
 #define N_GRID_LINES 8
 
     if (flags & IMP_PLOT_DRAW_GRID_XY) {
-        /* rlColor4ub(0xff, color.g, color.b, color.a); */
-        rlColor4ub(color.r, color.g, color.b, color.a);
+        Color c = COLOR_GRID_LINE;
+        /* c = (Color){.r=color.r, .g=color.g, .b=0xff, .a=color.a}; */
+        
         if (camera.Z > center.Z) {
             /* Bottom */
-            /* rlBegin(RL_TRIANGLES); */
-            /* rlVertex3f(min.X, min.Y, min.Z); */
-            /* rlVertex3f(max.X, min.Y, min.Z); */
-            /* rlVertex3f(max.X, max.Y, min.Z); */
-            /* rlVertex3f(min.X, min.Y, min.Z); */
-            /* rlVertex3f(max.X, max.Y, min.Z); */
-            /* rlVertex3f(min.X, max.Y, min.Z); */
-            /* rlEnd(); */
-            ImpDrawGridLines(min, HMM_V3(min.X, max.Y, min.Z), HMM_V3(max.X-min.X, 0, 0), COLOR_GRID_LINE, N_GRID_LINES);
-            ImpDrawGridLines(min, HMM_V3(max.X, min.Y, min.Z), HMM_V3(0, max.Y-min.Y, 0), COLOR_GRID_LINE, N_GRID_LINES);
+            ImpDrawGridLines(min, HMM_V3(min.X, max.Y, min.Z), HMM_V3(max.X-min.X, 0, 0), c, N_GRID_LINES);
+            ImpDrawGridLines(min, HMM_V3(max.X, min.Y, min.Z), HMM_V3(0, max.Y-min.Y, 0), c, N_GRID_LINES);
         } else {
             /* Top */
-            /* rlBegin(RL_TRIANGLES); */
-            /* rlVertex3f(max.X, max.Y, max.Z); */
-            /* rlVertex3f(min.X, min.Y, max.Z); */
-            /* rlVertex3f(min.X, max.Y, max.Z); */
-            /* rlVertex3f(max.X, max.Y, max.Z); */
-            /* rlVertex3f(max.X, min.Y, max.Z); */
-            /* rlVertex3f(min.X, min.Y, max.Z); */
-            /* rlEnd(); */
-            ImpDrawGridLines(max, HMM_V3(max.X, min.Y, max.Z), HMM_V3(min.X-max.X, 0, 0), COLOR_GRID_LINE, N_GRID_LINES);
-            ImpDrawGridLines(max, HMM_V3(min.X, max.Y, max.Z), HMM_V3(0, min.Y-max.Y, 0), COLOR_GRID_LINE, N_GRID_LINES);
+            ImpDrawGridLines(max, HMM_V3(max.X, min.Y, max.Z), HMM_V3(min.X-max.X, 0, 0), c, N_GRID_LINES);
+            ImpDrawGridLines(max, HMM_V3(min.X, max.Y, max.Z), HMM_V3(0, min.Y-max.Y, 0), c, N_GRID_LINES);
         }
     }
 
 
     if (flags & IMP_PLOT_DRAW_GRID_ZX) {
-        /* rlColor4ub(color.r, 0xff, color.b, color.a); */
-        rlColor4ub(color.r, color.g, color.b, color.a);
+        Color c = COLOR_GRID_LINE;
+        /* c = (Color){.r=color.r, .g=0xff, .b=color.b, .a=color.a}; */
+                    
         if (camera.Y > center.Y) {
             /* Right */
-            /* rlBegin(RL_TRIANGLES); */
-            /* rlVertex3f(min.X, min.Y, min.Z); */
-            /* rlVertex3f(min.X, min.Y, max.Z); */
-            /* rlVertex3f(max.X, min.Y, max.Z); */
-            /* rlVertex3f(min.X, min.Y, min.Z); */
-            /* rlVertex3f(max.X, min.Y, max.Z); */
-            /* rlVertex3f(max.X, min.Y, min.Z); */
-            /* rlEnd(); */
-            ImpDrawGridLines(min, HMM_V3(min.X, min.Y, max.Z), HMM_V3(max.X-min.X, 0, 0), COLOR_GRID_LINE, N_GRID_LINES);
-            ImpDrawGridLines(min, HMM_V3(max.X, min.Y, min.Z), HMM_V3(0, 0, max.Z-min.Z), COLOR_GRID_LINE, N_GRID_LINES);
+            ImpDrawGridLines(min, HMM_V3(min.X, min.Y, max.Z), HMM_V3(max.X-min.X, 0, 0), c, N_GRID_LINES);
+            ImpDrawGridLines(min, HMM_V3(max.X, min.Y, min.Z), HMM_V3(0, 0, max.Z-min.Z), c, N_GRID_LINES);
+
         } else {
             /* Left */
-            /* rlBegin(RL_TRIANGLES); */
-            /* rlVertex3f(max.X, max.Y, max.Z); */
-            /* rlVertex3f(min.X, max.Y, min.Z); */
-            /* rlVertex3f(max.X, max.Y, min.Z); */
-            /* rlVertex3f(max.X, max.Y, max.Z); */
-            /* rlVertex3f(min.X, max.Y, max.Z); */
-            /* rlVertex3f(min.X, max.Y, min.Z); */
-            /* rlEnd(); */
-            ImpDrawGridLines(max, HMM_V3(max.X, max.Y, min.Z), HMM_V3(min.X-max.X, 0, 0), COLOR_GRID_LINE, N_GRID_LINES);
-            ImpDrawGridLines(max, HMM_V3(min.X, max.Y, max.Z), HMM_V3(0, 0, min.Z-max.Z), COLOR_GRID_LINE, N_GRID_LINES);
+            ImpDrawGridLines(max, HMM_V3(max.X, max.Y, min.Z), HMM_V3(min.X-max.X, 0, 0), c, N_GRID_LINES);
+            ImpDrawGridLines(max, HMM_V3(min.X, max.Y, max.Z), HMM_V3(0, 0, min.Z-max.Z), c, N_GRID_LINES);
         }
     }
 
     if (flags & IMP_PLOT_DRAW_GRID_YZ) {
-        /* rlColor4ub(color.r, color.g, 0xff, color.a); */
-        rlColor4ub(color.r, color.g, color.b, color.a);
+        Color c = COLOR_GRID_LINE;
+        /* c = (Color){.r=0xff, .g=color.g, .b=color.b, .a=color.a}; */
+        
         if (camera.X > center.X) {
             /* Near */
-            /* rlBegin(RL_TRIANGLES); */
-            /* rlVertex3f(min.X, min.Y, min.Z); */
-            /* rlVertex3f(min.X, max.Y, min.Z); */
-            /* rlVertex3f(min.X, max.Y, max.Z); */
-            /* rlVertex3f(min.X, min.Y, min.Z); */
-            /* rlVertex3f(min.X, max.Y, max.Z); */
-            /* rlVertex3f(min.X, min.Y, max.Z); */
-            /* rlEnd(); */
-            ImpDrawGridLines(min, HMM_V3(min.X, min.Y, max.Z), HMM_V3(0, max.Y-min.Y, 0), COLOR_GRID_LINE, N_GRID_LINES);
-            ImpDrawGridLines(min, HMM_V3(min.X, max.Y, min.Z), HMM_V3(0, 0, max.Z-min.Z), COLOR_GRID_LINE, N_GRID_LINES);
+            if (flags & IMP_PLOT_DRAW_GRID_YZ) {
+                ImpDrawGridLines(min, HMM_V3(min.X, min.Y, max.Z), HMM_V3(0, max.Y-min.Y, 0), c, N_GRID_LINES);
+                ImpDrawGridLines(min, HMM_V3(min.X, max.Y, min.Z), HMM_V3(0, 0, max.Z-min.Z), c, N_GRID_LINES);
+            }
         } else {
             /* Far */
-            /* rlBegin(RL_TRIANGLES); */
-            /* rlVertex3f(max.X, max.Y, max.Z); */
-            /* rlVertex3f(max.X, min.Y, min.Z); */
-            /* rlVertex3f(max.X, min.Y, max.Z); */
-            /* rlVertex3f(max.X, max.Y, max.Z); */
-            /* rlVertex3f(max.X, max.Y, min.Z); */
-            /* rlVertex3f(max.X, min.Y, min.Z); */
-            /* rlEnd(); */
-            ImpDrawGridLines(max, HMM_V3(max.X, max.Y, min.Z), HMM_V3(0, min.Y-max.Y, 0), COLOR_GRID_LINE, N_GRID_LINES);
-            ImpDrawGridLines(max, HMM_V3(max.X, min.Y, max.Z), HMM_V3(0, 0, min.Z-max.Z), COLOR_GRID_LINE, N_GRID_LINES);
+            if (flags & IMP_PLOT_DRAW_GRID_YZ) {
+                ImpDrawGridLines(max, HMM_V3(max.X, max.Y, min.Z), HMM_V3(0, min.Y-max.Y, 0), c, N_GRID_LINES);
+                ImpDrawGridLines(max, HMM_V3(max.X, min.Y, max.Z), HMM_V3(0, 0, min.Z-max.Z), c, N_GRID_LINES);
+            }
         }
     }
+
+    if (flags & IMP_PLOT_DRAW_AXIS_Y) {
+        Color c = COLOR_AXES;
+        c = (Color){.r=0xff, .g=color.g, .b=color.b, .a=color.a};
+
+        HMM_Vec3 closest = min;
+        closest.Y = (camera.Y > center.Y)? max.Y : min.Y;
+        HMM_Vec3 end = closest; end.X = max.X;
+
+        DrawLine3D(PCAST(Vector3, closest), PCAST(Vector3, end), c);
+    }
+
     
-    rlEnd();
+    if (flags & IMP_PLOT_DRAW_AXIS_Y) {
+        Color c = COLOR_AXES;
+        c = (Color){.r=color.r, .g=0xff, .b=color.b, .a=color.a};
+
+        HMM_Vec3 closest = min;
+        closest.X = (camera.X > center.X)? max.X : min.X;
+        HMM_Vec3 end = closest; end.Y = max.Y;
+
+        DrawLine3D(PCAST(Vector3, closest), PCAST(Vector3, end), c);
+    }
+
+    if (flags & IMP_PLOT_DRAW_AXIS_Z) {
+        Color c = COLOR_AXES;
+        c = (Color){.r=color.r, .g=color.g, .b=0xff, .a=color.a};
+
+        HMM_Vec3 closest = min;
+        /* On Right */
+        closest.X = (camera.Y > center.Y)? max.X : min.X;
+        closest.Y = (camera.X > center.X)? min.Y : max.Y;
+        /* On Left */
+        /* closest.X = (camera.Y < center.Y)? max.X : min.X; */
+        /* closest.Y = (camera.X < center.X)? min.Y : max.Y; */
+        HMM_Vec3 end = closest; end.Z = max.Z;
+
+        DrawLine3D(PCAST(Vector3, closest), PCAST(Vector3, end), c);
+    }
 }
 
 int main(void)
@@ -147,21 +195,53 @@ int main(void)
     
     SetTargetFPS(60);
 
-    HMM_Vec3 PlotMax = {2, 5, 2};
-    HMM_Vec3 PlotMin = {-2, -5, -5};
+    HMM_Vec3 PlotMax = {5, 5, 2};
+    HMM_Vec3 PlotMin = {-5, -5, -5};
     HMM_Vec3 PlotSize = HMM_SubV3(PlotMax, PlotMin);
     HMM_Vec3 PlotCenter = HMM_LerpV3(PlotMax, 0.5, PlotMin);
     HMM_Vec3 CameraEye = {-8, -8, 8};
     HMM_Vec3 Up = HMM_V3(0, 0, 1);
 
-    Texture atlas; {
-        Image img = {
-            .data = atlas_texture,
+    { /* Load atlas - custom loading to get transparent background from 1 bytes per pixel */
+        atlas = (Texture) {
             .width = ATLAS_WIDTH,
             .height = ATLAS_HEIGHT,
             .mipmaps = 1,
-            .format = PIXELFORMAT_UNCOMPRESSED_GRAYSCALE
+            .format = PIXELFORMAT_UNCOMPRESSED_GRAYSCALE,
         };
+
+        // https://javagl.github.io/GLConstantsTranslator/GLConstantsTranslator.html
+        const s32 GL_ONE = 1;
+        const s32 GL_UNPACK_ALIGNMENT = 4;
+        const s32 GL_TEXTURE_2D = 3553;
+        const s32 GL_RED = 6403;
+        const s32 GL_TEXTURE_SWIZZLE_RGBA = 36422;
+        const s32 GL_RGBA = 6408;
+        const s32 GL_UNSIGNED_BYTE = 5121;
+        const s32 GL_R8 = 33321;
+        const s32 GL_TEXTURE_WRAP_S = 10242;
+        const s32 GL_REPEAT = 10497;
+        const s32 GL_TEXTURE_WRAP_T = 10243;
+        const s32 GL_NEAREST = 9728;
+        const s32 GL_LINEAR = 9729;
+        const s32 GL_TEXTURE_MAG_FILTER = 10240;
+        const s32 GL_TEXTURE_MIN_FILTER = 10241;
+        glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+        u32 id;
+        glGenTextures(1, &id);            
+        glBindTexture(GL_TEXTURE_2D, id);
+        atlas.id = id;
+        u32 glInternalFormat, glFormat, glType;
+        rlGetGlTextureFormats(atlas.format, &glInternalFormat, &glFormat, &glType);
+        glTexImage2D(GL_TEXTURE_2D, 0, glInternalFormat, atlas.width, atlas.height, 0, glFormat, glType, atlas_data);
+        s32 swizzleMask[] = { GL_ONE, GL_ONE, GL_ONE, GL_RED };
+        /* s32 swizzleMask[] = { GL_RED, GL_RED, GL_RED, GL_ONE }; /* <- standard raylib */
+        glTexParameteriv(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_RGBA, swizzleMask);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glBindTexture(GL_TEXTURE_2D, 0);
     }
 
     f32 drag_angle = 0;
@@ -195,7 +275,9 @@ int main(void)
         }
 
         BeginDrawing();
+
         ClearBackground(WHITE);
+        /* rlDisableBackfaceCulling(); */
         
         BeginMode3D((Camera){0});
         Matrix cam_proj = rlGetMatrixProjection();
@@ -209,9 +291,16 @@ int main(void)
         rlSetMatrixModelview(PCAST(Matrix, model));
         rlMultMatrixf(camera.Elements[0]);
 
+        ImpDrawGrid(PlotMin, PlotMax, rot_pos, IMP_PLOT_DRAW_GRID_XY | IMP_PLOT_DRAW_ALL_AXES);
         ImpDrawGrid(PlotMin, PlotMax, rot_pos, IMP_PLOT_DRAW_ALL_3D);
-        
+
+        /* ImpDrawPlane p = { .bl = HMM_V3(0,0,0), .r = HMM_V3(1,0,0), .u = HMM_V3(0,1,0)}; */
+        /* ImpDrawText3D(p, imp_str("dev-dwarf"), RED, 0.08); */
+
         EndMode3D();
+
+        DrawTexture(atlas, 0, 0, WHITE);
+                
         EndDrawing();
     }
     
@@ -220,7 +309,7 @@ int main(void)
     return 0;
 }
 
-unsigned char atlas_texture[ATLAS_WIDTH * ATLAS_HEIGHT] = {
+unsigned char atlas_data[ATLAS_WIDTH * ATLAS_HEIGHT] = {
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -1106,7 +1195,7 @@ unsigned char atlas_texture[ATLAS_WIDTH * ATLAS_HEIGHT] = {
 };
 
 
-Rectangle atlas[256] = {
+Rectangle atlas_rect[256] = {
     [ MU_ICON_CLOSE ] = { 88, 68, 16, 16 },
     [ MU_ICON_CHECK ] = { 0, 0, 18, 18 },
     [ MU_ICON_EXPANDED ] = { 118, 68, 7, 5 },

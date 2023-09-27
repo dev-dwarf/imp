@@ -354,7 +354,7 @@ int main(int argc, char **argv) {
 #define BUFFER_SIZE 0xf0000
 
 static GLfloat   tex_buf[BUFFER_SIZE *  2*4];
-static GLfloat  vert_buf[BUFFER_SIZE *  3*4];
+static GLfloat  vert_buf[BUFFER_SIZE *  3*];
 static GLubyte color_buf[BUFFER_SIZE * 16];
 static GLuint  index_buf[BUFFER_SIZE *  6];
 
