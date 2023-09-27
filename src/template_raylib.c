@@ -246,6 +246,7 @@ int main(void)
         const s32 GL_R8 = 33321;
         const s32 GL_TEXTURE_WRAP_S = 10242;
         const s32 GL_REPEAT = 10497;
+        const s32 GL_CLAMP = 10496;
         const s32 GL_TEXTURE_WRAP_T = 10243;
         const s32 GL_NEAREST = 9728;
         const s32 GL_LINEAR = 9729;
@@ -262,10 +263,10 @@ int main(void)
         s32 swizzleMask[] = { GL_ONE, GL_ONE, GL_ONE, GL_RED };
         /* s32 swizzleMask[] = { GL_RED, GL_RED, GL_RED, GL_ONE }; /* <- standard raylib */
         glTexParameteriv(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_RGBA, swizzleMask);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
         glBindTexture(GL_TEXTURE_2D, 0);
     }
 
@@ -286,12 +287,12 @@ int main(void)
         #define ANGLE_SENSITIVITY 0.01
         #define Z_SENSITIVITY 0.1
         #define ZOOM_SENSITIVITY 0.1
-        if (IsMouseButtonPressed(MOUSE_BUTTON_RIGHT)) {
+        if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
             drag_angle = angle;
             drag_start_x = GetMouseX();
             drag_start_y = GetMouseY();
         }
-        if (IsMouseButtonDown(MOUSE_BUTTON_RIGHT)) {
+        if (IsMouseButtonDown(MOUSE_BUTTON_LEFT)) {
             angle = drag_angle + ANGLE_SENSITIVITY*(drag_start_x - GetMouseX());
             z = drag_z - Z_SENSITIVITY*(drag_start_y - GetMouseY());
             CameraEye.Z = z;
