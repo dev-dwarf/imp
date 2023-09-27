@@ -81,8 +81,9 @@ void ImpDrawText3D(ImpDrawPlane plane, str text, Color color, f32 size) {
     }
 }
 
-void ImpDrawGrid(HMM_Vec3 min, HMM_Vec3 max, HMM_Vec3 camera, u32 flags) {
+void ImpDrawGrid(HMM_Vec3 min, HMM_Vec3 max, ImpDrawPlane billboard, HMM_Vec3 camera, u32 flags) {
 
+    
     Color color = {.r = 0xdd, .g = 0xdd, .b = 0xdd, .a = 0xff};
     rlColor4ub(color.r, color.g, color.b, color.a);
 
@@ -144,6 +145,9 @@ void ImpDrawGrid(HMM_Vec3 min, HMM_Vec3 max, HMM_Vec3 camera, u32 flags) {
         }
     }
 
+
+#define TEXT_SIZE 0.032
+    #define TEXT_PERCENT_OFFSET 1.1
     if (flags & IMP_PLOT_DRAW_AXIS_Y) {
         Color c = COLOR_AXES;
         c = (Color){.r=0xff, .g=color.g, .b=color.b, .a=color.a};
@@ -153,6 +157,10 @@ void ImpDrawGrid(HMM_Vec3 min, HMM_Vec3 max, HMM_Vec3 camera, u32 flags) {
         HMM_Vec3 end = closest; end.X = max.X;
 
         DrawLine3D(PCAST(Vector3, closest), PCAST(Vector3, end), c);
+
+        ImpDrawPlane p = billboard;
+        p.bl = HMM_MulV3F(closest,TEXT_PERCENT_OFFSET); p.bl.X = HMM_Lerp(closest.X, 0.5, end.X);
+        ImpDrawText3D(p, imp_str("X"), c, TEXT_SIZE);
     }
 
     
@@ -165,6 +173,10 @@ void ImpDrawGrid(HMM_Vec3 min, HMM_Vec3 max, HMM_Vec3 camera, u32 flags) {
         HMM_Vec3 end = closest; end.Y = max.Y;
 
         DrawLine3D(PCAST(Vector3, closest), PCAST(Vector3, end), c);
+
+        ImpDrawPlane p = billboard;
+        p.bl = HMM_MulV3F(closest,TEXT_PERCENT_OFFSET); p.bl.Y = HMM_Lerp(closest.Y, 0.5, end.Y);
+        ImpDrawText3D(p, imp_str("Y"), c, TEXT_SIZE);
     }
 
     if (flags & IMP_PLOT_DRAW_AXIS_Z) {
@@ -181,6 +193,9 @@ void ImpDrawGrid(HMM_Vec3 min, HMM_Vec3 max, HMM_Vec3 camera, u32 flags) {
         HMM_Vec3 end = closest; end.Z = max.Z;
 
         DrawLine3D(PCAST(Vector3, closest), PCAST(Vector3, end), c);
+        ImpDrawPlane p = billboard;
+        p.bl = HMM_MulV3F(closest,TEXT_PERCENT_OFFSET); p.bl.Z = HMM_Lerp(closest.Z, 0.5, end.Z);
+        ImpDrawText3D(p, imp_str("Z"), c, TEXT_SIZE);
     }
 }
 
@@ -286,16 +301,23 @@ int main(void)
         HMM_Mat4 camera = HMM_LookAt_RH(CameraEye, PlotCenter, Up);
         HMM_Mat4 model = HMM_Rotate_RH(angle, Up);
 
+        HMM_Mat4 modelview_inv = HMM_MulM4(model, HMM_InvGeneralM4(camera));
+        HMM_Mat4 modelview = HMM_MulM4(camera, model);
+        HMM_Mat4 ident = HMM_MulM4(modelview_inv, modelview);
+
         HMM_Vec3 rot_pos = HMM_MulM4V4(model, (HMM_Vec4){ .XYZ = CameraEye, .W = 0 }).XYZ;
         
         rlSetMatrixModelview(PCAST(Matrix, model));
         rlMultMatrixf(camera.Elements[0]);
 
-        ImpDrawGrid(PlotMin, PlotMax, rot_pos, IMP_PLOT_DRAW_GRID_XY | IMP_PLOT_DRAW_ALL_AXES);
-        ImpDrawGrid(PlotMin, PlotMax, rot_pos, IMP_PLOT_DRAW_ALL_3D);
+        HMM_Vec3 billboard_r = HMM_MulM4V4(modelview_inv, HMM_V4(1,0,0,0)).XYZ;
+        HMM_Vec3 billboard_u = HMM_MulM4V4(modelview_inv, HMM_V4(0,1,0,0)).XYZ;
+        ImpDrawPlane billboard_plane = { .bl = HMM_V3(0,0,0), .r = billboard_r, .u = billboard_u};
 
-        /* ImpDrawPlane p = { .bl = HMM_V3(0,0,0), .r = HMM_V3(1,0,0), .u = HMM_V3(0,1,0)}; */
-        /* ImpDrawText3D(p, imp_str("dev-dwarf"), RED, 0.08); */
+        ImpDrawGrid(PlotMin, PlotMax, billboard_plane, rot_pos, IMP_PLOT_DRAW_GRID_XY | IMP_PLOT_DRAW_ALL_AXES);
+        ImpDrawGrid(PlotMin, PlotMax, billboard_plane, rot_pos, IMP_PLOT_DRAW_ALL_3D);
+        
+        /* ImpDrawText3D(billboard_plane, imp_str("dev-dwarf"), RED, 0.04); */
 
         EndMode3D();
 
