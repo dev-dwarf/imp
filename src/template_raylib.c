@@ -13,6 +13,13 @@
 #include "third_party/raylib/rlgl.h"
 #include "third_party/microui/microui.h"
 
+extern void glPixelStorei(int, int);
+extern void glGenTextures(unsigned, unsigned*);
+extern void glBindTexture(int, unsigned);
+extern void glTexImage2D(int, int, int, unsigned, unsigned, int, int, int, const void*);
+extern void glTexParameteriv(int, int, const int*);
+extern void glTexParameteri(int, int, int);
+
 enum { ATLAS_WHITE = MU_ICON_MAX, ATLAS_FONT };
 enum { ATLAS_WIDTH = 128, ATLAS_HEIGHT = 128 };
 
@@ -37,12 +44,12 @@ struct ImpDrawPlane {
     HMM_Vec3 r;
     HMM_Vec3 u;
 };
-inline void ImpDrawVertex(HMM_Vec3 v, HMM_Vec2 t) {
+static inline void ImpDrawVertex(HMM_Vec3 v, HMM_Vec2 t) {
     rlTexCoord2f(t.X, t.Y);
     rlVertex3f(v.X, v.Y, v.Z);
 }
 
-inline void ImpDrawTexQuadFromAtlas(ImpDrawPlane p, Rectangle tex, Color color) {
+static inline void ImpDrawTexQuadFromAtlas(ImpDrawPlane p, Rectangle tex, Color color) {
     rlSetTexture(atlas.id);
     HMM_Vec3 vbl = p.bl;
     HMM_Vec3 vbr = HMM_AddV3(p.bl, p.r);
@@ -68,7 +75,7 @@ inline void ImpDrawTexQuadFromAtlas(ImpDrawPlane p, Rectangle tex, Color color) 
     rlEnd();
 }
 
-void ImpDrawText3D(ImpDrawPlane plane, str text, Color color, f32 size) {
+static void ImpDrawText3D(ImpDrawPlane plane, str text, Color color, f32 size) {
     plane.r = HMM_MulV3F(plane.r, size);
     plane.u = HMM_MulV3F(plane.u, size);
     for (s32 i = 0; i < text.len; i++) {
