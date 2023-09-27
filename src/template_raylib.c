@@ -3,10 +3,10 @@
    - 2d camera mode (top down ortho)
    - 3d pan, zoom controls
    - render axes near 0
-   - render labels
-   -- billboards, optionally with tilt to fit more
-   -- or 3d text as an option too https://www.raylib.com/examples/text/loader.html?name=text_draw_3d
-   -- seems like have to do all text as 3d anyway so look at above example.
+
+   - Need another matrix in camera stack.
+   - Decouple idea of plot's coordinates from data's coordinates, since
+   - users may want to scale the axes (for example to make x,y square)
  */
 
 #include "third_party/raylib/raylib.h"
@@ -147,13 +147,14 @@ void ImpDrawGrid(HMM_Vec3 min, HMM_Vec3 max, ImpDrawPlane billboard, HMM_Vec3 ca
 
 
 #define TEXT_SIZE 0.032
-    #define TEXT_PERCENT_OFFSET 1.1
+#define TEXT_PERCENT_OFFSET 1.1
     if (flags & IMP_PLOT_DRAW_AXIS_Y) {
         Color c = COLOR_AXES;
         c = (Color){.r=0xff, .g=color.g, .b=color.b, .a=color.a};
 
         HMM_Vec3 closest = min;
         closest.Y = (camera.Y > center.Y)? max.Y : min.Y;
+        closest.Z = (camera.Z < center.Z)? max.Z : min.Z;
         HMM_Vec3 end = closest; end.X = max.X;
 
         DrawLine3D(PCAST(Vector3, closest), PCAST(Vector3, end), c);
@@ -170,6 +171,7 @@ void ImpDrawGrid(HMM_Vec3 min, HMM_Vec3 max, ImpDrawPlane billboard, HMM_Vec3 ca
 
         HMM_Vec3 closest = min;
         closest.X = (camera.X > center.X)? max.X : min.X;
+        closest.Z = (camera.Z < center.Z)? max.Z : min.Z;
         HMM_Vec3 end = closest; end.Y = max.Y;
 
         DrawLine3D(PCAST(Vector3, closest), PCAST(Vector3, end), c);
@@ -214,7 +216,8 @@ int main(void)
     HMM_Vec3 PlotMin = {-5, -5, -5};
     HMM_Vec3 PlotSize = HMM_SubV3(PlotMax, PlotMin);
     HMM_Vec3 PlotCenter = HMM_LerpV3(PlotMax, 0.5, PlotMin);
-    HMM_Vec3 CameraEye = {-8, -8, 8};
+    HMM_Vec3 CameraEye = {-10, -10, 8};
+    /* CameraEye = PlotCenter; CameraEye.Z += 5; */
     HMM_Vec3 Up = HMM_V3(0, 0, 1);
 
     { /* Load atlas - custom loading to get transparent background from 1 bytes per pixel */
@@ -262,25 +265,38 @@ int main(void)
     f32 drag_angle = 0;
     f32 drag_start_x = 0;
     f32 angle = 0;
+
+    f32 drag_z = 0;
+    f32 drag_start_y = 0;
+    f32 z = CameraEye.Z;
+
+    f32 zoom = 1.0;
     
     while (!WindowShouldClose())   
     {
 
+        #define ANGLE_SENSITIVITY 0.01
+        #define Z_SENSITIVITY 0.1
+        #define ZOOM_SENSITIVITY 0.1
         if (IsMouseButtonPressed(MOUSE_BUTTON_RIGHT)) {
             drag_angle = angle;
             drag_start_x = GetMouseX();
+            drag_start_y = GetMouseY();
         }
         if (IsMouseButtonDown(MOUSE_BUTTON_RIGHT)) {
-            f32 sensitivity = 0.01;
-            angle = drag_angle + sensitivity*(drag_start_x - GetMouseX());
+            angle = drag_angle + ANGLE_SENSITIVITY*(drag_start_x - GetMouseX());
+            z = drag_z - Z_SENSITIVITY*(drag_start_y - GetMouseY());
+            CameraEye.Z = z;
         }
+        Vector2 scroll = GetMouseWheelMoveV();
+        zoom += -ZOOM_SENSITIVITY*scroll.y;
 
         HMM_Mat4 proj; {
-#define FOV 75
+#define FOV 75*zoom
 #define CULL_NEAR 0.01
 #define CULL_FAR 1000
             f64 aspect = (f64)screenWidth/(f64)screenHeight;
-            f64 h = 9;
+            f64 h = 9*zoom;
             f64 w = h*aspect;
             proj = HMM_Orthographic_RH_ZO(-w, w, -h,h, CULL_NEAR, CULL_FAR);
 
