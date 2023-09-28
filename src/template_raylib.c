@@ -3,15 +3,12 @@
    - 2d camera mode (top down ortho)
    - 3d pan, zoom controls
    - render axes near 0
-
-   - Need another matrix in camera stack.
-   - Decouple idea of plot's coordinates from data's coordinates, since
-   - users may want to scale the axes (for example to make x,y square)
  */
 
 #include "third_party/raylib/raylib.h"
 #include "third_party/raylib/rlgl.h"
 #include "third_party/microui/microui.h"
+#include "third_party/HandmadeMath.h"
 
 extern void glPixelStorei(int, int);
 extern void glGenTextures(unsigned, unsigned*);
@@ -28,6 +25,48 @@ extern Rectangle atlas_rect[256];
 static Texture atlas;
 
 #include "imp.h"
+
+enum {
+    IMP_CAMERA_CUSTOM        = 1 << 0,
+    IMP_CAMERA_PERSPECTIVE   = 1 << 1,
+    IMP_CAMERA_Y_UP          = 1 << 2,
+    IMP_AXIS_X               = 1 << 3,
+    IMP_AXIS_Y               = 1 << 4,
+    IMP_AXIS_Z               = 1 << 5,
+    IMP_GRID_YZ              = 1 << 6,
+    IMP_GRID_ZX              = 1 << 7,
+    IMP_GRID_XY              = 1 << 8,
+    IMP_AXIS_Z_TEXT_RIGHT    = 1 << 9,
+
+    
+    IMP_AXIS_ALL             = (IMP_AXIS_X | IMP_AXIS_Y | IMP_AXIS_Z),
+    IMP_GRID_ALL             = (IMP_GRID_YZ | IMP_GRID_ZX | IMP_GRID_XY),
+    IMP_PRESET_2D            = (IMP_CAMERA_Y_UP | IMP_AXIS_X | IMP_AXIS_Y | IMP_GRID_XY),
+    IMP_PRESET_3D            = (IMP_AXIS_ALL | IMP_GRID_ALL),
+};
+typedef struct ImpPlot {
+    u64 flags;
+
+    Rect screen;
+    HMM_Vec3 plot_min;
+    HMM_Vec3 plot_max;
+    HMM_Vec3 view_radius;
+    HMM_Vec3 view_pos;
+    HMM_Vec3 view_up;
+    f32 angle;
+    f32 zoom;
+    f32 fov;
+    f32 z_sensitivity;
+    f32 angle_sensitivity;
+    f32 zoom_sensitivity;
+    HMM_Mat4 projection;
+    HMM_Mat4 plot_rotation;
+    HMM_Mat4 camera;
+
+    f32 text_size;
+    HMM_Vec3 text_percent_offset;
+    
+} ImpPlot;
 
 void ImpDrawGridLines(HMM_Vec3 start, HMM_Vec3 end, HMM_Vec3 sweep, Color color, s32 n) {
     HMM_Vec3 step = HMM_DivV3F(sweep, n);
@@ -63,15 +102,10 @@ static inline void ImpDrawTexQuadFromAtlas(ImpDrawPlane p, Rectangle tex, Color 
 
     rlBegin(RL_QUADS);
     rlColor4ub(color.r, color.g, color.b, color.a);
-    ImpDrawVertex(vtl, ttl);
-    ImpDrawVertex(vbl, tbl);
-    ImpDrawVertex(vbr, tbr);
-        
-    ImpDrawVertex(vtr, ttr);
- 
-    /* ImpDrawVertex(vbl, tbl); */
-    /* ImpDrawVertex(vbr, tbr); */
-    /* ImpDrawVertex(vtr, ttr); */
+    rlTexCoord2f(ttl.X, ttl.Y); rlVertex3f(vtl.X, vtl.Y, vtl.Z);
+    rlTexCoord2f(tbl.X, tbl.Y); rlVertex3f(vbl.X, vbl.Y, vbl.Z);
+    rlTexCoord2f(tbr.X, tbr.Y); rlVertex3f(vbr.X, vbr.Y, vbr.Z);
+    rlTexCoord2f(ttr.X, ttr.Y); rlVertex3f(vtr.X, vtr.Y, vtr.Z);
     rlEnd();
 }
 
@@ -88,24 +122,24 @@ static void ImpDrawText3D(ImpDrawPlane plane, str text, Color color, f32 size) {
     }
 }
 
-void ImpDrawGrid(HMM_Vec3 min, HMM_Vec3 max, ImpDrawPlane billboard, HMM_Vec3 camera, u32 flags) {
-
-    
+void ImpDrawGrid(ImpPlot* plot, HMM_Vec3 camera_pos, ImpDrawPlane billboard) {
     Color color = {.r = 0xdd, .g = 0xdd, .b = 0xdd, .a = 0xff};
     rlColor4ub(color.r, color.g, color.b, color.a);
 
-    HMM_Vec3 center = HMM_LerpV3(min, 0.5, max);
+    HMM_Vec3 min = HMM_MulV3F(plot->view_radius, -1);
+    HMM_Vec3 max = HMM_MulV3F(plot->view_radius, 1);
+    HMM_Vec3 center = {0,0,0};
 
     color = BLACK;
 #define COLOR_AXES BLACK
 #define COLOR_GRID_LINE LIGHTGRAY
 #define N_GRID_LINES 8
 
-    if (flags & IMP_PLOT_DRAW_GRID_XY) {
+    if (plot->flags & IMP_GRID_XY) {
         Color c = COLOR_GRID_LINE;
         /* c = (Color){.r=color.r, .g=color.g, .b=0xff, .a=color.a}; */
         
-        if (camera.Z > center.Z) {
+        if (camera_pos.Z > center.Z) {
             /* Bottom */
             ImpDrawGridLines(min, HMM_V3(min.X, max.Y, min.Z), HMM_V3(max.X-min.X, 0, 0), c, N_GRID_LINES);
             ImpDrawGridLines(min, HMM_V3(max.X, min.Y, min.Z), HMM_V3(0, max.Y-min.Y, 0), c, N_GRID_LINES);
@@ -117,11 +151,11 @@ void ImpDrawGrid(HMM_Vec3 min, HMM_Vec3 max, ImpDrawPlane billboard, HMM_Vec3 ca
     }
 
 
-    if (flags & IMP_PLOT_DRAW_GRID_ZX) {
+    if (plot->flags & IMP_GRID_ZX) {
         Color c = COLOR_GRID_LINE;
         /* c = (Color){.r=color.r, .g=0xff, .b=color.b, .a=color.a}; */
                     
-        if (camera.Y > center.Y) {
+        if (camera_pos.Y > center.Y) {
             /* Right */
             ImpDrawGridLines(min, HMM_V3(min.X, min.Y, max.Z), HMM_V3(max.X-min.X, 0, 0), c, N_GRID_LINES);
             ImpDrawGridLines(min, HMM_V3(max.X, min.Y, min.Z), HMM_V3(0, 0, max.Z-min.Z), c, N_GRID_LINES);
@@ -133,79 +167,83 @@ void ImpDrawGrid(HMM_Vec3 min, HMM_Vec3 max, ImpDrawPlane billboard, HMM_Vec3 ca
         }
     }
 
-    if (flags & IMP_PLOT_DRAW_GRID_YZ) {
+    if (plot->flags & IMP_GRID_YZ) {
         Color c = COLOR_GRID_LINE;
         /* c = (Color){.r=0xff, .g=color.g, .b=color.b, .a=color.a}; */
         
-        if (camera.X > center.X) {
+        if (camera_pos.X > center.X) {
             /* Near */
-            if (flags & IMP_PLOT_DRAW_GRID_YZ) {
-                ImpDrawGridLines(min, HMM_V3(min.X, min.Y, max.Z), HMM_V3(0, max.Y-min.Y, 0), c, N_GRID_LINES);
-                ImpDrawGridLines(min, HMM_V3(min.X, max.Y, min.Z), HMM_V3(0, 0, max.Z-min.Z), c, N_GRID_LINES);
-            }
+            ImpDrawGridLines(min, HMM_V3(min.X, min.Y, max.Z), HMM_V3(0, max.Y-min.Y, 0), c, N_GRID_LINES);
+            ImpDrawGridLines(min, HMM_V3(min.X, max.Y, min.Z), HMM_V3(0, 0, max.Z-min.Z), c, N_GRID_LINES);
         } else {
             /* Far */
-            if (flags & IMP_PLOT_DRAW_GRID_YZ) {
-                ImpDrawGridLines(max, HMM_V3(max.X, max.Y, min.Z), HMM_V3(0, min.Y-max.Y, 0), c, N_GRID_LINES);
-                ImpDrawGridLines(max, HMM_V3(max.X, min.Y, max.Z), HMM_V3(0, 0, min.Z-max.Z), c, N_GRID_LINES);
-            }
+            ImpDrawGridLines(max, HMM_V3(max.X, max.Y, min.Z), HMM_V3(0, min.Y-max.Y, 0), c, N_GRID_LINES);
+            ImpDrawGridLines(max, HMM_V3(max.X, min.Y, max.Z), HMM_V3(0, 0, min.Z-max.Z), c, N_GRID_LINES);
         }
     }
 
 
-#define TEXT_SIZE 0.032
-#define TEXT_PERCENT_OFFSET 1.1
-    if (flags & IMP_PLOT_DRAW_AXIS_Y) {
+#define TEXT_SIZE (plot->text_size*plot->zoom)
+    if (plot->flags & IMP_AXIS_X) {
         Color c = COLOR_AXES;
         c = (Color){.r=0xff, .g=color.g, .b=color.b, .a=color.a};
 
         HMM_Vec3 closest = min;
-        closest.Y = (camera.Y > center.Y)? max.Y : min.Y;
-        closest.Z = (camera.Z < center.Z)? max.Z : min.Z;
+        closest.Y = (camera_pos.Y > center.Y)? max.Y : min.Y;
+        closest.Z = (camera_pos.Z > center.Z)? min.Z : max.Z;
         HMM_Vec3 end = closest; end.X = max.X;
 
         DrawLine3D(PCAST(Vector3, closest), PCAST(Vector3, end), c);
 
         ImpDrawPlane p = billboard;
-        p.bl = HMM_MulV3F(closest,TEXT_PERCENT_OFFSET); p.bl.X = HMM_Lerp(closest.X, 0.5, end.X);
+        p.bl = HMM_MulV3F(closest, plot->text_percent_offset.X);
+        p.bl.X = HMM_Lerp(closest.X, (camera_pos.X > center.X)? 0.1 : 0.9, end.X);
         ImpDrawText3D(p, imp_str("X"), c, TEXT_SIZE);
     }
 
     
-    if (flags & IMP_PLOT_DRAW_AXIS_Y) {
+    if (plot->flags & IMP_AXIS_Y) {
         Color c = COLOR_AXES;
         c = (Color){.r=color.r, .g=0xff, .b=color.b, .a=color.a};
 
         HMM_Vec3 closest = min;
-        closest.X = (camera.X > center.X)? max.X : min.X;
-        closest.Z = (camera.Z < center.Z)? max.Z : min.Z;
+        closest.X = (camera_pos.X > center.X)? max.X : min.X;
+        closest.Z = (camera_pos.Z > center.Z)? min.Z : max.Z;
         HMM_Vec3 end = closest; end.Y = max.Y;
 
         DrawLine3D(PCAST(Vector3, closest), PCAST(Vector3, end), c);
 
         ImpDrawPlane p = billboard;
-        p.bl = HMM_MulV3F(closest,TEXT_PERCENT_OFFSET); p.bl.Y = HMM_Lerp(closest.Y, 0.5, end.Y);
+        p.bl = HMM_MulV3F(closest,plot->text_percent_offset.Y);
+        p.bl.Y = HMM_Lerp(closest.Y, (camera_pos.Y > center.Y)? 0.1 : 0.9, end.Y);
         ImpDrawText3D(p, imp_str("Y"), c, TEXT_SIZE);
     }
 
-    if (flags & IMP_PLOT_DRAW_AXIS_Z) {
+    if (plot->flags & IMP_AXIS_Z) {
         Color c = COLOR_AXES;
         c = (Color){.r=color.r, .g=color.g, .b=0xff, .a=color.a};
-
         HMM_Vec3 closest = min;
-        /* On Right */
-        closest.X = (camera.Y > center.Y)? max.X : min.X;
-        closest.Y = (camera.X > center.X)? min.Y : max.Y;
-        /* On Left */
-        /* closest.X = (camera.Y < center.Y)? max.X : min.X; */
-        /* closest.Y = (camera.X < center.X)? min.Y : max.Y; */
+        if (plot->flags & IMP_AXIS_Z_TEXT_RIGHT) {
+            /* On Right */
+            closest.X = (camera_pos.Y < center.Y)? max.X : min.X;
+            closest.Y = (camera_pos.X < center.X)? min.Y : max.Y;
+        } else {
+            /* On Left */
+            closest.X = (camera_pos.Y > center.Y)? max.X : min.X;
+            closest.Y = (camera_pos.X > center.X)? min.Y : max.Y;
+        }
         HMM_Vec3 end = closest; end.Z = max.Z;
 
         DrawLine3D(PCAST(Vector3, closest), PCAST(Vector3, end), c);
         ImpDrawPlane p = billboard;
-        p.bl = HMM_MulV3F(closest,TEXT_PERCENT_OFFSET); p.bl.Z = HMM_Lerp(closest.Z, 0.5, end.Z);
+        p.bl = HMM_MulV3F(closest,plot->text_percent_offset.Z);
+        p.bl.Z = HMM_Lerp(closest.Z, (camera_pos.Z < center.Z)? 0.1 : 0.9, end.Z);
         ImpDrawText3D(p, imp_str("Z"), c, TEXT_SIZE);
     }
+}
+
+void imp_update_plot_controls(Context *imp, ImpPlot *plot) {
+    /* TODO move update code in here and get controls from imp context */
 }
 
 int main(void)
@@ -213,19 +251,29 @@ int main(void)
     const int screenWidth = 800;
     const int screenHeight = 800;
 
+    ImpPlot Plot = {
+        .flags = IMP_PRESET_3D,
+        .view_pos = {-1, -1, +1},
+        .view_radius = {+1, +1, +1},
+        .plot_min = {-5, -5, -5},
+        .plot_max = {+5, +5, +2},
+        /* .flags = IMP_PRESET_2D, */
+        /* .view_pos = {0, 0, 0.33}, */
+        .zoom = 1,
+        .fov = 75,
+    };
+
+    f32 max_radius = HMM_MAX(Plot.view_radius.X, HMM_MAX(Plot.view_radius.Y, Plot.view_radius.Z));
+    f32 sum_radius = Plot.view_radius.X + Plot.view_radius.Y + Plot.view_radius.Z;
+    f32 len_radius = HMM_LenV3(Plot.view_radius);
+    Plot.text_size = 0.005*len_radius;
+    Plot.text_percent_offset = HMM_AddV3(HMM_V3(1,1,1), HMM_MulV3F(Plot.view_radius, 0.66/sum_radius));
+    Plot.view_pos = HMM_MulV3F(Plot.view_pos, HMM_SqrtF(max_radius)/3);
+
     SetConfigFlags(FLAG_MSAA_4X_HINT);
     InitWindow(screenWidth, screenHeight, "imp");
-    /* DisableCursor(); */
-    
     SetTargetFPS(60);
-
-    HMM_Vec3 PlotMax = {5, 5, 2};
-    HMM_Vec3 PlotMin = {-5, -5, -5};
-    HMM_Vec3 PlotSize = HMM_SubV3(PlotMax, PlotMin);
-    HMM_Vec3 PlotCenter = HMM_LerpV3(PlotMax, 0.5, PlotMin);
-    HMM_Vec3 CameraEye = {-10, -10, 8};
-    /* CameraEye = PlotCenter; CameraEye.Z += 5; */
-    HMM_Vec3 Up = HMM_V3(0, 0, 1);
+    /* DisableCursor(); */
 
     { /* Load atlas - custom loading to get transparent background from 1 bytes per pixel */
         atlas = (Texture) {
@@ -267,88 +315,102 @@ int main(void)
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        /* glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST); */
+        /* glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST); */
         glBindTexture(GL_TEXTURE_2D, 0);
     }
 
     f32 drag_angle = 0;
     f32 drag_start_x = 0;
-    f32 angle = 0;
 
     f32 drag_z = 0;
     f32 drag_start_y = 0;
-    f32 z = CameraEye.Z;
 
-    f32 zoom = 1.0;
-    
-    while (!WindowShouldClose())   
-    {
-        HMM_Vec3 CameraPos = CameraEye;
-        
-        #define ANGLE_SENSITIVITY 0.01
-        #define Z_SENSITIVITY 0.1
-        #define ZOOM_SENSITIVITY 0.1
-        if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
-            drag_angle = angle;
-            drag_start_x = GetMouseX();
-            drag_start_y = GetMouseY();
-        }
-        if (IsMouseButtonDown(MOUSE_BUTTON_LEFT)) {
-            angle = drag_angle + ANGLE_SENSITIVITY*(drag_start_x - GetMouseX());
-            z = drag_z - Z_SENSITIVITY*(drag_start_y - GetMouseY());
-            CameraEye.Z = z;
-        }
-        Vector2 scroll = GetMouseWheelMoveV();
-        zoom += -ZOOM_SENSITIVITY*scroll.y;
+    while (!WindowShouldClose()) {
+        if (~Plot.flags & IMP_CAMERA_CUSTOM) { /* TODO seperate flag for controls? */
+            // TODO move to init?   
+            Plot.z_sensitivity = (Plot.z_sensitivity)? Plot.z_sensitivity : 0.005;
+            Plot.angle_sensitivity = (Plot.angle_sensitivity)? Plot.angle_sensitivity : 0.01;
+            Plot.zoom_sensitivity = (Plot.zoom_sensitivity)? Plot.zoom_sensitivity : 0.1;
 
-        HMM_Mat4 proj; {
-#define FOV 75
-#define CULL_NEAR 0.01
-#define CULL_FAR 1000
-            f64 aspect = (f64)screenWidth/(f64)screenHeight;
-            f64 h = 9*zoom;
-            f64 w = h*aspect;
-            proj = HMM_Orthographic_RH_ZO(-w, w, -h,h, CULL_NEAR, CULL_FAR);
-
-            if (IsKeyDown(KEY_SPACE)) {
-                proj = HMM_Perspective_RH_NO(HMM_AngleDeg(FOV), aspect, CULL_NEAR, CULL_FAR);
-                CameraPos = HMM_MulV3F(CameraPos, zoom);
+            /* 3D Controls */
+            if (~Plot.flags & IMP_CAMERA_Y_UP) {
+                if (IsMouseButtonPressed(MOUSE_BUTTON_RIGHT)) {
+                    drag_angle = Plot.angle;
+                    drag_start_x = GetMouseX();
+                    drag_start_y = GetMouseY();
+                    drag_z = Plot.view_pos.Z;
+                }
+                if (IsMouseButtonDown(MOUSE_BUTTON_RIGHT)) {
+                    Plot.angle = drag_angle - Plot.angle_sensitivity*(drag_start_x - GetMouseX());
+                    Plot.view_pos.Z = drag_z - Plot.z_sensitivity*(drag_start_y - GetMouseY());
+                }
             }
+
+            /* Zoom Controls */
+            Vector2 scroll = GetMouseWheelMoveV();
+            Plot.zoom += -Plot.zoom_sensitivity*scroll.y;
         }
+
+        // TODO should zoom be disabled with custom camera?
+        HMM_Vec3 view_pos = HMM_MulV3F(Plot.view_pos, Plot.zoom);
+        if (~Plot.flags & IMP_CAMERA_CUSTOM) {
+            f64 aspect = (f64)screenWidth/(f64)screenHeight;
+
+            // TODO move to init?
+            if (Plot.flags & IMP_CAMERA_Y_UP) {
+                view_pos.XY = HMM_V2(0, 0);
+                Plot.view_up = HMM_V3(0, 1, 0);
+            } else {
+                Plot.view_up = HMM_V3(0, 0, 1);
+            }
+
+            if (Plot.flags & IMP_CAMERA_PERSPECTIVE) {
+#define CULL_NEAR 0.01
+#define CULL_FAR 10000
+                Plot.projection = HMM_Perspective_RH_NO(HMM_AngleDeg(Plot.fov), aspect, CULL_NEAR, CULL_FAR);
+            } else {
+                f64 s;
+                s = (Plot.flags & IMP_CAMERA_Y_UP)? Plot.view_pos.Z : HMM_LenV2(Plot.view_pos.XY);
+                /* TODO option, matches perspective view better */
+                /* s = HMM_LenV3(Plot.view_pos); */
+                s = HMM_SqrtF(HMM_DotV3(Plot.view_pos, HMM_MulV3(Plot.view_pos, Plot.view_radius)));
+                
+                f64 h = s*Plot.zoom*HMM_TanF(HMM_AngleDeg(Plot.fov));
+                f64 w = h*aspect;
+                Plot.projection = HMM_Orthographic_RH_ZO(-w, w, -h,h, CULL_NEAR, CULL_FAR); 
+            }
+
+            Plot.plot_rotation = HMM_Rotate_RH(Plot.angle, Plot.view_up);
+            Plot.camera = HMM_LookAt_RH(view_pos, HMM_V3(0,0,0), Plot.view_up);
+        }
+
+        HMM_Mat4 modelview = HMM_MulM4(Plot.camera, Plot.plot_rotation);
+        HMM_Mat4 modelview_inv = HMM_InvGeneralM4(modelview);
 
         BeginDrawing();
 
         ClearBackground(WHITE);
-        /* rlDisableBackfaceCulling(); */
+        rlDisableBackfaceCulling();
         
         BeginMode3D((Camera){0});
-        Matrix cam_proj = rlGetMatrixProjection();
-        rlSetMatrixProjection(PCAST(Matrix, proj));
+        rlSetMatrixProjection(PCAST(Matrix, Plot.projection));
+        HMM_Mat4 trans = HMM_TransposeM4(modelview);
+        rlSetMatrixModelview(PCAST(Matrix, trans));
 
-        HMM_Mat4 camera = HMM_LookAt_RH(CameraPos, PlotCenter, Up);
-        HMM_Mat4 model = HMM_Rotate_RH(angle, Up);
-
-        HMM_Mat4 modelview_inv = HMM_MulM4(model, HMM_InvGeneralM4(camera));
-        HMM_Mat4 modelview = HMM_MulM4(camera, model);
-        HMM_Mat4 ident = HMM_MulM4(modelview_inv, modelview);
-
-        HMM_Vec3 rot_pos = HMM_MulM4V4(model, (HMM_Vec4){ .XYZ = CameraEye, .W = 0 }).XYZ;
-        
-        rlSetMatrixModelview(PCAST(Matrix, model));
-        rlMultMatrixf(camera.Elements[0]);
-
+        /* Get position of camera relative to plot rotation, as well as basis dirs for billboards */
+        HMM_Vec3 rot_pos = HMM_MulM4V4(HMM_TransposeM4(Plot.plot_rotation), (HMM_Vec4){ .XYZ = view_pos, .W = 0 }).XYZ;
         HMM_Vec3 billboard_r = HMM_MulM4V4(modelview_inv, HMM_V4(1,0,0,0)).XYZ;
         HMM_Vec3 billboard_u = HMM_MulM4V4(modelview_inv, HMM_V4(0,1,0,0)).XYZ;
         ImpDrawPlane billboard_plane = { .bl = HMM_V3(0,0,0), .r = billboard_r, .u = billboard_u};
+        ImpDrawGrid(&Plot, rot_pos, billboard_plane);
 
-        ImpDrawGrid(PlotMin, PlotMax, billboard_plane, rot_pos, IMP_PLOT_DRAW_GRID_XY | IMP_PLOT_DRAW_ALL_AXES);
-        ImpDrawGrid(PlotMin, PlotMax, billboard_plane, rot_pos, IMP_PLOT_DRAW_ALL_3D);
-        
-        /* ImpDrawText3D(billboard_plane, imp_str("dev-dwarf"), RED, 0.04); */
 
         EndMode3D();
 
-        DrawTexture(atlas, 0, 0, WHITE);
-                
+        DrawTexture(atlas, 0, 0, RED);
+        printf("%f, %f, %f\n", view_pos.X, view_pos.Y, view_pos.Z);
+        
         EndDrawing();
     }
     
