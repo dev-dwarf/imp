@@ -1,5 +1,4 @@
 build/*
-local/*
 *.exe
 *.pdb
 *.exp
@@ -7,6 +6,4 @@ local/*
 *.ilk
 *.d
 *.swp
-*.lib
-*.dll
 *.rdbg

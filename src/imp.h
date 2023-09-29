@@ -65,7 +65,7 @@ struct str {
 
 str imp_str(char *s) {
     str out = {.str = s};
-    while (*s++ != 0) out.len++;
+    if (s) while (*s++ != 0) out.len++;
     return out;
 }
 

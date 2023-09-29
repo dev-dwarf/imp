@@ -3,6 +3,13 @@
    - 2d camera mode (top down ortho)
    - 3d pan, zoom controls
    - render axes near 0
+   - centered, left, right text
+
+   - major and minor grids
+   -- should be able to set number of grid lines
+   -- should also have good defaults that dont require config
+
+   - move configuration to plot_begin or plot_end? so that user can override stuff more easily.
  */
 
 #include "third_party/raylib/raylib.h"
@@ -25,6 +32,7 @@ extern Rectangle atlas_rect[256];
 static Texture atlas;
 
 #include "imp.h"
+static Context *imp;
 
 enum {
     IMP_CAMERA_CUSTOM        = 1 << 0,
@@ -69,8 +77,8 @@ typedef struct ImpPlot {
 } ImpPlot;
 
 void ImpDrawGridLines(HMM_Vec3 start, HMM_Vec3 end, HMM_Vec3 sweep, Color color, s32 n) {
-    HMM_Vec3 step = HMM_DivV3F(sweep, n);
-    for (s32 i = 0; i <= n; i++) {
+    HMM_Vec3 step = HMM_DivV3F(sweep, n-1);
+    for (s32 i = 0; i < n; i++) {
         DrawLine3D(PCAST(Vector3, start), PCAST(Vector3, end), color);
         start = HMM_AddV3(start, step);
         end = HMM_AddV3(end, step);
@@ -109,6 +117,16 @@ static inline void ImpDrawTexQuadFromAtlas(ImpDrawPlane p, Rectangle tex, Color 
     rlEnd();
 }
 
+static HMM_Vec2 ImpMeasureText(str text) {
+    HMM_Vec2 out = {0};
+    for (s32 i = 0; i < text.len; i++) {
+        Rectangle r = atlas_rect[ATLAS_FONT + text.str[i]];
+        out.Y = MAX(r.height, out.Y);
+        out.X += r.width;
+    }
+    return out;
+}
+
 static void ImpDrawText3D(ImpDrawPlane plane, str text, Color color, f32 size) {
     plane.r = HMM_MulV3F(plane.r, size);
     plane.u = HMM_MulV3F(plane.u, size);
@@ -122,7 +140,7 @@ static void ImpDrawText3D(ImpDrawPlane plane, str text, Color color, f32 size) {
     }
 }
 
-void ImpDrawGrid(ImpPlot* plot, HMM_Vec3 camera_pos, ImpDrawPlane billboard) {
+void ImpDrawPlot(ImpPlot* plot, HMM_Vec3 camera_pos, ImpDrawPlane billboard) {
     Color color = {.r = 0xdd, .g = 0xdd, .b = 0xdd, .a = 0xff};
     rlColor4ub(color.r, color.g, color.b, color.a);
 
@@ -133,7 +151,7 @@ void ImpDrawGrid(ImpPlot* plot, HMM_Vec3 camera_pos, ImpDrawPlane billboard) {
     color = BLACK;
 #define COLOR_AXES BLACK
 #define COLOR_GRID_LINE LIGHTGRAY
-#define N_GRID_LINES 8
+#define N_GRID_LINES 5
 
     if (plot->flags & IMP_GRID_XY) {
         Color c = COLOR_GRID_LINE;
@@ -184,9 +202,11 @@ void ImpDrawGrid(ImpPlot* plot, HMM_Vec3 camera_pos, ImpDrawPlane billboard) {
 
 
 #define TEXT_SIZE (plot->text_size*plot->zoom)
+#define TEXT_OFFSET 1.0 + plot->text_percent_offset
+#define NUM_TEXT_SIZE (TEXT_SIZE*0.66)
+#define NUM_TEXT_OFFSET 1.0 + 0.55*plot->text_percent_offset
     if (plot->flags & IMP_AXIS_X) {
         Color c = COLOR_AXES;
-        c = (Color){.r=0xff, .g=color.g, .b=color.b, .a=color.a};
 
         HMM_Vec3 closest = min;
         closest.Y = (camera_pos.Y > center.Y)? max.Y : min.Y;
@@ -196,7 +216,15 @@ void ImpDrawGrid(ImpPlot* plot, HMM_Vec3 camera_pos, ImpDrawPlane billboard) {
         DrawLine3D(PCAST(Vector3, closest), PCAST(Vector3, end), c);
 
         ImpDrawPlane p = billboard;
-        p.bl = HMM_MulV3F(closest, plot->text_percent_offset.X);
+        p.bl = HMM_MulV3F(closest, NUM_TEXT_OFFSET.X);
+        for (s32 i = 0; i < N_GRID_LINES; i++) {
+            f32 x = (f64)i/(f64)(N_GRID_LINES-1);
+            p.bl.X = HMM_Lerp(closest.X, x, end.X);
+            ImpDrawText3D(p, strf(imp, "%.5g", HMM_Lerp(plot->plot_min.X, x, plot->plot_max.X)), c, NUM_TEXT_SIZE);
+        }
+
+        c = (Color){.r=0xdf, .g=color.g, .b=color.b, .a=color.a};
+        p.bl = HMM_MulV3F(closest, TEXT_OFFSET.X);
         p.bl.X = HMM_Lerp(closest.X, (camera_pos.X > center.X)? 0.1 : 0.9, end.X);
         ImpDrawText3D(p, imp_str("X"), c, TEXT_SIZE);
     }
@@ -204,7 +232,6 @@ void ImpDrawGrid(ImpPlot* plot, HMM_Vec3 camera_pos, ImpDrawPlane billboard) {
     
     if (plot->flags & IMP_AXIS_Y) {
         Color c = COLOR_AXES;
-        c = (Color){.r=color.r, .g=0xff, .b=color.b, .a=color.a};
 
         HMM_Vec3 closest = min;
         closest.X = (camera_pos.X > center.X)? max.X : min.X;
@@ -214,14 +241,21 @@ void ImpDrawGrid(ImpPlot* plot, HMM_Vec3 camera_pos, ImpDrawPlane billboard) {
         DrawLine3D(PCAST(Vector3, closest), PCAST(Vector3, end), c);
 
         ImpDrawPlane p = billboard;
-        p.bl = HMM_MulV3F(closest,plot->text_percent_offset.Y);
+        p.bl = HMM_MulV3F(closest, NUM_TEXT_OFFSET.Y);
+        for (s32 i = 0; i < N_GRID_LINES; i++) {
+            f32 y = (f64)i/(f64)(N_GRID_LINES-1);
+            p.bl.Y = HMM_Lerp(closest.Y, y, end.Y);
+            ImpDrawText3D(p, strf(imp, "%.5g", HMM_Lerp(plot->plot_min.Y, y, plot->plot_max.Y)), c, NUM_TEXT_SIZE);
+        }
+
+        c = (Color){.r=color.r, .g=0xdf, .b=color.b, .a=color.a};
+        p.bl = HMM_MulV3F(closest, TEXT_OFFSET.Y);
         p.bl.Y = HMM_Lerp(closest.Y, (camera_pos.Y > center.Y)? 0.1 : 0.9, end.Y);
         ImpDrawText3D(p, imp_str("Y"), c, TEXT_SIZE);
     }
 
     if (plot->flags & IMP_AXIS_Z) {
         Color c = COLOR_AXES;
-        c = (Color){.r=color.r, .g=color.g, .b=0xff, .a=color.a};
         HMM_Vec3 closest = min;
         if (plot->flags & IMP_AXIS_Z_TEXT_RIGHT) {
             /* On Right */
@@ -236,7 +270,15 @@ void ImpDrawGrid(ImpPlot* plot, HMM_Vec3 camera_pos, ImpDrawPlane billboard) {
 
         DrawLine3D(PCAST(Vector3, closest), PCAST(Vector3, end), c);
         ImpDrawPlane p = billboard;
-        p.bl = HMM_MulV3F(closest,plot->text_percent_offset.Z);
+        p.bl = HMM_MulV3F(closest, NUM_TEXT_OFFSET.Z);
+        for (s32 i = 0; i < N_GRID_LINES; i++) {
+            f32 z = (f64)i/(f64)(N_GRID_LINES-1);
+            p.bl.Z = HMM_Lerp(closest.Z, z, end.Z);
+            ImpDrawText3D(p, strf(imp, "%.5g", HMM_Lerp(plot->plot_min.Z, z, plot->plot_max.Z)), c, NUM_TEXT_SIZE);
+        }
+
+        c = (Color){.r=color.r, .g=color.g, .b=0xdf, .a=color.a};
+        p.bl = HMM_MulV3F(closest, TEXT_OFFSET.Z);
         p.bl.Z = HMM_Lerp(closest.Z, (camera_pos.Z < center.Z)? 0.1 : 0.9, end.Z);
         ImpDrawText3D(p, imp_str("Z"), c, TEXT_SIZE);
     }
@@ -251,6 +293,9 @@ int main(void)
     const int screenWidth = 800;
     const int screenHeight = 800;
 
+    imp = malloc(sizeof(Context));
+    imp_init(imp, 0, 0, 0);
+
     ImpPlot Plot = {
         .flags = IMP_PRESET_3D,
         .view_pos = {-1, -1, +1},
@@ -258,7 +303,7 @@ int main(void)
         .plot_min = {-5, -5, -5},
         .plot_max = {+5, +5, +2},
         /* .flags = IMP_PRESET_2D, */
-        /* .view_pos = {0, 0, 0.33}, */
+        /* .view_pos = {0, 0, 1}, */
         .zoom = 1,
         .fov = 75,
     };
@@ -266,8 +311,13 @@ int main(void)
     f32 max_radius = HMM_MAX(Plot.view_radius.X, HMM_MAX(Plot.view_radius.Y, Plot.view_radius.Z));
     f32 sum_radius = Plot.view_radius.X + Plot.view_radius.Y + Plot.view_radius.Z;
     f32 len_radius = HMM_LenV3(Plot.view_radius);
-    Plot.text_size = 0.005*len_radius;
-    Plot.text_percent_offset = HMM_AddV3(HMM_V3(1,1,1), HMM_MulV3F(Plot.view_radius, 0.66/sum_radius));
+    HMM_Vec3 bivec_radius = {
+        len_radius/(3*3*Plot.view_radius.Y*Plot.view_radius.Z),
+        len_radius/(3*3*Plot.view_radius.Z*Plot.view_radius.X),
+        len_radius/(3*3*Plot.view_radius.X*Plot.view_radius.Y),
+    };
+    Plot.text_size = 0.0033*len_radius;
+    Plot.text_percent_offset = bivec_radius; //HMM_AddV3(HMM_V3(1,1,1), HMM_MulV3F(Plot.view_radius, 0.2));
     Plot.view_pos = HMM_MulV3F(Plot.view_pos, HMM_SqrtF(max_radius)/3);
 
     SetConfigFlags(FLAG_MSAA_4X_HINT);
@@ -349,7 +399,7 @@ int main(void)
 
             /* Zoom Controls */
             Vector2 scroll = GetMouseWheelMoveV();
-            Plot.zoom += -Plot.zoom_sensitivity*scroll.y;
+            Plot.zoom = HMM_Clamp(0.5, Plot.zoom - Plot.zoom_sensitivity*scroll.y, 2);
         }
 
         // TODO should zoom be disabled with custom camera?
@@ -388,6 +438,8 @@ int main(void)
         HMM_Mat4 modelview = HMM_MulM4(Plot.camera, Plot.plot_rotation);
         HMM_Mat4 modelview_inv = HMM_InvGeneralM4(modelview);
 
+        imp_begin(imp, (Inputs){0});
+
         BeginDrawing();
 
         ClearBackground(WHITE);
@@ -403,7 +455,7 @@ int main(void)
         HMM_Vec3 billboard_r = HMM_MulM4V4(modelview_inv, HMM_V4(1,0,0,0)).XYZ;
         HMM_Vec3 billboard_u = HMM_MulM4V4(modelview_inv, HMM_V4(0,1,0,0)).XYZ;
         ImpDrawPlane billboard_plane = { .bl = HMM_V3(0,0,0), .r = billboard_r, .u = billboard_u};
-        ImpDrawGrid(&Plot, rot_pos, billboard_plane);
+        ImpDrawPlot(&Plot, rot_pos, billboard_plane);
 
 
         EndMode3D();
