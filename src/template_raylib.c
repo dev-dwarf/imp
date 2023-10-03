@@ -46,7 +46,6 @@ enum {
     IMP_GRID_XY              = 1 << 8,
     IMP_AXIS_Z_TEXT_RIGHT    = 1 << 9,
 
-    
     IMP_AXIS_ALL             = (IMP_AXIS_X | IMP_AXIS_Y | IMP_AXIS_Z),
     IMP_GRID_ALL             = (IMP_GRID_YZ | IMP_GRID_ZX | IMP_GRID_XY),
     IMP_PRESET_2D            = (IMP_CAMERA_Y_UP | IMP_AXIS_X | IMP_AXIS_Y | IMP_GRID_XY),
@@ -75,6 +74,17 @@ typedef struct ImpPlot {
     HMM_Vec3 text_percent_offset;
     
 } ImpPlot;
+
+enum {
+    IMP_TEXT_ALIGN_LEFT   = 0,
+    IMP_TEXT_ALIGN_CENTER = 1,
+    IMP_TEXT_ALIGN_RIGHT  = 2
+};
+enum {
+    IMP_TEXT_ALIGN_BOTTOM = 0,
+    IMP_TEXT_ALIGN_MIDDLE = 1,
+    IMP_TEXT_ALIGN_TOP    = 2,
+};
 
 void ImpDrawGridLines(HMM_Vec3 start, HMM_Vec3 end, HMM_Vec3 sweep, Color color, s32 n) {
     HMM_Vec3 step = HMM_DivV3F(sweep, n-1);
@@ -125,6 +135,25 @@ static HMM_Vec2 ImpMeasureText(str text) {
         out.X += r.width;
     }
     return out;
+}
+
+static ImpDrawPlane ImpAlignText(ImpDrawPlane plane, HMM_Vec2 size, float text_size, int align_h, int align_v) {
+    f32 f;
+    switch (align_h) {
+    case IMP_TEXT_ALIGN_LEFT  : {f = text_size;         } break;
+    case IMP_TEXT_ALIGN_CENTER: {f = text_size*size.X/2;} break;
+    case IMP_TEXT_ALIGN_RIGHT : {f = text_size*size.X;  } break;
+    }
+    plane.bl = HMM_SubV3(plane.bl, HMM_MulV3F(plane.r, f));
+
+    switch (align_v) {
+    case IMP_TEXT_ALIGN_BOTTOM: {f = text_size;         } break;
+    case IMP_TEXT_ALIGN_MIDDLE: {f = text_size*size.Y/2;} break;
+    case IMP_TEXT_ALIGN_TOP   : {f = text_size*size.Y;  } break;
+    }
+    plane.bl = HMM_SubV3(plane.bl, HMM_MulV3F(plane.u, f));
+
+    return plane;
 }
 
 static void ImpDrawText3D(ImpDrawPlane plane, str text, Color color, f32 size) {
@@ -200,13 +229,14 @@ void ImpDrawPlot(ImpPlot* plot, HMM_Vec3 camera_pos, ImpDrawPlane billboard) {
         }
     }
 
-
 #define TEXT_SIZE (plot->text_size*plot->zoom)
 #define TEXT_OFFSET 1.0 + plot->text_percent_offset
 #define NUM_TEXT_SIZE (TEXT_SIZE*0.66)
-#define NUM_TEXT_OFFSET 1.0 + 0.55*plot->text_percent_offset
+#define NUM_TEXT_OFFSET 1.0 + 0.35*plot->text_percent_offset
     if (plot->flags & IMP_AXIS_X) {
         Color c = COLOR_AXES;
+        s32 align_h = IMP_TEXT_ALIGN_CENTER;
+        s32 align_v = (camera_pos.Z > center.Z)? IMP_TEXT_ALIGN_BOTTOM : IMP_TEXT_ALIGN_TOP;
 
         HMM_Vec3 closest = min;
         closest.Y = (camera_pos.Y > center.Y)? max.Y : min.Y;
@@ -215,24 +245,32 @@ void ImpDrawPlot(ImpPlot* plot, HMM_Vec3 camera_pos, ImpDrawPlane billboard) {
 
         DrawLine3D(PCAST(Vector3, closest), PCAST(Vector3, end), c);
 
-        ImpDrawPlane p = billboard;
-        p.bl = HMM_MulV3F(closest, NUM_TEXT_OFFSET.X);
         for (s32 i = 0; i < N_GRID_LINES; i++) {
             f32 x = (f64)i/(f64)(N_GRID_LINES-1);
+            ImpDrawPlane p = billboard;
+            p.bl = HMM_MulV3F(closest, NUM_TEXT_OFFSET.X);
             p.bl.X = HMM_Lerp(closest.X, x, end.X);
-            ImpDrawText3D(p, strf(imp, "%.5g", HMM_Lerp(plot->plot_min.X, x, plot->plot_max.X)), c, NUM_TEXT_SIZE);
+            str s = strf(imp, "%.5g", HMM_Lerp(plot->plot_min.X, x, plot->plot_max.X));
+            p = ImpAlignText(p, ImpMeasureText(s), plot->text_size, align_h, align_v);
+            ImpDrawText3D(p, s, c, NUM_TEXT_SIZE);
         }
 
+        ImpDrawPlane p = billboard;
+        p.bl = HMM_MulV3F(closest, NUM_TEXT_OFFSET.X);
         c = (Color){.r=0xdf, .g=color.g, .b=color.b, .a=color.a};
         p.bl = HMM_MulV3F(closest, TEXT_OFFSET.X);
         p.bl.X = HMM_Lerp(closest.X, (camera_pos.X > center.X)? 0.1 : 0.9, end.X);
-        ImpDrawText3D(p, imp_str("X"), c, TEXT_SIZE);
+         str s = imp_str("Time");
+        p = ImpAlignText(p, ImpMeasureText(s), plot->text_size, align_h, align_v);
+        ImpDrawText3D(p, s, c, TEXT_SIZE);
     }
 
     
     if (plot->flags & IMP_AXIS_Y) {
         Color c = COLOR_AXES;
-
+        s32 align_h = IMP_TEXT_ALIGN_CENTER;
+        s32 align_v = (camera_pos.Z > center.Z)? IMP_TEXT_ALIGN_BOTTOM : IMP_TEXT_ALIGN_TOP;
+            
         HMM_Vec3 closest = min;
         closest.X = (camera_pos.X > center.X)? max.X : min.X;
         closest.Z = (camera_pos.Z > center.Z)? min.Z : max.Z;
@@ -240,22 +278,30 @@ void ImpDrawPlot(ImpPlot* plot, HMM_Vec3 camera_pos, ImpDrawPlane billboard) {
 
         DrawLine3D(PCAST(Vector3, closest), PCAST(Vector3, end), c);
 
-        ImpDrawPlane p = billboard;
-        p.bl = HMM_MulV3F(closest, NUM_TEXT_OFFSET.Y);
         for (s32 i = 0; i < N_GRID_LINES; i++) {
             f32 y = (f64)i/(f64)(N_GRID_LINES-1);
+            ImpDrawPlane p = billboard;
+            p.bl = HMM_MulV3F(closest, NUM_TEXT_OFFSET.Y);
             p.bl.Y = HMM_Lerp(closest.Y, y, end.Y);
-            ImpDrawText3D(p, strf(imp, "%.5g", HMM_Lerp(plot->plot_min.Y, y, plot->plot_max.Y)), c, NUM_TEXT_SIZE);
+            str s = strf(imp, "%.5g", HMM_Lerp(plot->plot_min.Y, y, plot->plot_max.Y));
+            p = ImpAlignText(p, ImpMeasureText(s), plot->text_size, align_h, align_v);
+            ImpDrawText3D(p, s, c, NUM_TEXT_SIZE);
         }
 
         c = (Color){.r=color.r, .g=0xdf, .b=color.b, .a=color.a};
+        ImpDrawPlane p = billboard;
         p.bl = HMM_MulV3F(closest, TEXT_OFFSET.Y);
         p.bl.Y = HMM_Lerp(closest.Y, (camera_pos.Y > center.Y)? 0.1 : 0.9, end.Y);
-        ImpDrawText3D(p, imp_str("Y"), c, TEXT_SIZE);
+        str s = imp_str("Y");
+        p = ImpAlignText(p, ImpMeasureText(s), plot->text_size, align_h, align_v);
+        ImpDrawText3D(p, s, c, TEXT_SIZE);
     }
 
     if (plot->flags & IMP_AXIS_Z) {
         Color c = COLOR_AXES;
+        s32 align_h = (plot->flags & IMP_AXIS_Z_TEXT_RIGHT)? IMP_TEXT_ALIGN_LEFT : IMP_TEXT_ALIGN_RIGHT;
+        s32 align_v = IMP_TEXT_ALIGN_BOTTOM;
+        
         HMM_Vec3 closest = min;
         if (plot->flags & IMP_AXIS_Z_TEXT_RIGHT) {
             /* On Right */
@@ -269,18 +315,25 @@ void ImpDrawPlot(ImpPlot* plot, HMM_Vec3 camera_pos, ImpDrawPlane billboard) {
         HMM_Vec3 end = closest; end.Z = max.Z;
 
         DrawLine3D(PCAST(Vector3, closest), PCAST(Vector3, end), c);
-        ImpDrawPlane p = billboard;
-        p.bl = HMM_MulV3F(closest, NUM_TEXT_OFFSET.Z);
+        
         for (s32 i = 0; i < N_GRID_LINES; i++) {
             f32 z = (f64)i/(f64)(N_GRID_LINES-1);
+            ImpDrawPlane p = billboard;
+            p.bl = HMM_MulV3F(closest, NUM_TEXT_OFFSET.Z);
             p.bl.Z = HMM_Lerp(closest.Z, z, end.Z);
-            ImpDrawText3D(p, strf(imp, "%.5g", HMM_Lerp(plot->plot_min.Z, z, plot->plot_max.Z)), c, NUM_TEXT_SIZE);
+            str s = strf(imp, "%.5g", HMM_Lerp(plot->plot_min.Z, z, plot->plot_max.Z));
+            p = ImpAlignText(p, ImpMeasureText(s), plot->text_size, align_h, align_v);
+            ImpDrawText3D(p, s, c, NUM_TEXT_SIZE);
         }
 
+        ImpDrawPlane p = billboard;
+        p.bl = HMM_MulV3F(closest, NUM_TEXT_OFFSET.Z);
         c = (Color){.r=color.r, .g=color.g, .b=0xdf, .a=color.a};
         p.bl = HMM_MulV3F(closest, TEXT_OFFSET.Z);
         p.bl.Z = HMM_Lerp(closest.Z, (camera_pos.Z < center.Z)? 0.1 : 0.9, end.Z);
-        ImpDrawText3D(p, imp_str("Z"), c, TEXT_SIZE);
+        str s = imp_str("Lemons");
+        p = ImpAlignText(p, ImpMeasureText(s), plot->text_size, align_h, align_v);
+        ImpDrawText3D(p, s, c, TEXT_SIZE);
     }
 }
 
@@ -301,7 +354,7 @@ int main(void)
         .view_pos = {-1, -1, +1},
         .view_radius = {+1, +1, +1},
         .plot_min = {-5, -5, -5},
-        .plot_max = {+5, +5, +2},
+        .plot_max = {+5, +5, +5},
         /* .flags = IMP_PRESET_2D, */
         /* .view_pos = {0, 0, 1}, */
         .zoom = 1,
@@ -314,7 +367,7 @@ int main(void)
     HMM_Vec3 bivec_radius = {
         len_radius/(3*3*Plot.view_radius.Y*Plot.view_radius.Z),
         len_radius/(3*3*Plot.view_radius.Z*Plot.view_radius.X),
-        len_radius/(3*3*Plot.view_radius.X*Plot.view_radius.Y),
+        0.5*len_radius/(3*3*Plot.view_radius.X*Plot.view_radius.Y),
     };
     Plot.text_size = 0.0033*len_radius;
     Plot.text_percent_offset = bivec_radius; //HMM_AddV3(HMM_V3(1,1,1), HMM_MulV3F(Plot.view_radius, 0.2));
