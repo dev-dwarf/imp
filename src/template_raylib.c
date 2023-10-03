@@ -180,7 +180,7 @@ void ImpDrawPlot(ImpPlot* plot, HMM_Vec3 camera_pos, ImpDrawPlane billboard) {
     color = BLACK;
 #define COLOR_AXES BLACK
 #define COLOR_GRID_LINE LIGHTGRAY
-#define N_GRID_LINES 5
+#define N_GRID_LINES 6
 
     if (plot->flags & IMP_GRID_XY) {
         Color c = COLOR_GRID_LINE;
@@ -232,7 +232,7 @@ void ImpDrawPlot(ImpPlot* plot, HMM_Vec3 camera_pos, ImpDrawPlane billboard) {
 #define TEXT_SIZE (plot->text_size*plot->zoom)
 #define TEXT_OFFSET 1.0 + plot->text_percent_offset
 #define NUM_TEXT_SIZE (TEXT_SIZE*0.66)
-#define NUM_TEXT_OFFSET 1.0 + 0.35*plot->text_percent_offset
+#define NUM_TEXT_OFFSET 1.0 + 0.45*plot->text_percent_offset
     if (plot->flags & IMP_AXIS_X) {
         Color c = COLOR_AXES;
         s32 align_h = IMP_TEXT_ALIGN_CENTER;
@@ -260,7 +260,7 @@ void ImpDrawPlot(ImpPlot* plot, HMM_Vec3 camera_pos, ImpDrawPlane billboard) {
         c = (Color){.r=0xdf, .g=color.g, .b=color.b, .a=color.a};
         p.bl = HMM_MulV3F(closest, TEXT_OFFSET.X);
         p.bl.X = HMM_Lerp(closest.X, (camera_pos.X > center.X)? 0.1 : 0.9, end.X);
-         str s = imp_str("Time");
+         str s = imp_str("X");
         p = ImpAlignText(p, ImpMeasureText(s), plot->text_size, align_h, align_v);
         ImpDrawText3D(p, s, c, TEXT_SIZE);
     }
@@ -331,7 +331,7 @@ void ImpDrawPlot(ImpPlot* plot, HMM_Vec3 camera_pos, ImpDrawPlane billboard) {
         c = (Color){.r=color.r, .g=color.g, .b=0xdf, .a=color.a};
         p.bl = HMM_MulV3F(closest, TEXT_OFFSET.Z);
         p.bl.Z = HMM_Lerp(closest.Z, (camera_pos.Z < center.Z)? 0.1 : 0.9, end.Z);
-        str s = imp_str("Lemons");
+        str s = imp_str("Z");
         p = ImpAlignText(p, ImpMeasureText(s), plot->text_size, align_h, align_v);
         ImpDrawText3D(p, s, c, TEXT_SIZE);
     }
