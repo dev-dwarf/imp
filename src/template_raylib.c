@@ -150,6 +150,9 @@ static inline void ImpDrawTexQuadFromAtlas(ImpDrawPlane p, Rectangle tex, Color 
 void ImpDrawLine(HMM_Vec3 billboard_z, HMM_Vec3 start, HMM_Vec3 end, Color color, float thickness) {
     ImpDrawPlane p;
     HMM_Vec3 dir = HMM_SubV3(end, start);
+    /* Project the direction onto the billboard plane by subtracting the depth part */
+    dir = HMM_SubV3(dir, HMM_MulV3F(billboard_z, HMM_DotV3(billboard_z, dir)));
+    /* Get the normal direction to dir in the billboard plane */
     HMM_Vec3 ndir = HMM_Cross(HMM_NormV3(dir), billboard_z);
     ndir = HMM_MulV3F(ndir, thickness);
     p.bl = HMM_SubV3(start, HMM_MulV3F(ndir, 0.5));
@@ -159,12 +162,22 @@ void ImpDrawLine(HMM_Vec3 billboard_z, HMM_Vec3 start, HMM_Vec3 end, Color color
     ImpDrawTexQuadFromAtlas(p, r, color);
 }
 
-void ImpDrawGridLines(HMM_Vec3 start, HMM_Vec3 end, HMM_Vec3 sweep, Color color, s32 n) {
+void ImpDrawGridLines(HMM_Vec3 billboard_z, HMM_Vec3 start, HMM_Vec3 end, HMM_Vec3 sweep, Color color, s32 n, float thickness) {
     HMM_Vec3 step = HMM_DivV3F(sweep, n-1);
+    ImpDrawPlane p;
+    HMM_Vec3 dir = HMM_SubV3(end, start);
+    /* Project the direction onto the billboard plane by subtracting the depth part */
+    dir = HMM_SubV3(dir, HMM_MulV3F(billboard_z, HMM_DotV3(billboard_z, dir)));
+    /* Get the normal direction to dir in the billboard plane */
+    HMM_Vec3 ndir = HMM_Cross(HMM_NormV3(dir), billboard_z);
+    ndir = HMM_MulV3F(ndir, thickness);
+    p.bl = HMM_SubV3(start, HMM_MulV3F(ndir, 0.5));
+    p.r = dir;
+    p.u = ndir;
+    Rectangle r = atlas_rect[IMP_LINE_TEXTURE];
     for (s32 i = 0; i < n; i++) {
-        DrawLine3D(PCAST(Vector3, start), PCAST(Vector3, end), color);
-        start = HMM_AddV3(start, step);
-        end = HMM_AddV3(end, step);
+        ImpDrawTexQuadFromAtlas(p, r, color);
+        p.bl = HMM_AddV3(p.bl, step);
     }
 }
 
@@ -220,6 +233,8 @@ void ImpDrawPlot(ImpPlot* plot, HMM_Vec3 camera_pos) {
     HMM_Vec3 center = {0,0,0};
     HMM_Vec3 min = HMM_MulV3F(plot->view_radius, -1);
     HMM_Vec3 max = HMM_MulV3F(plot->view_radius, +1);
+    f32 text_size = plot->text_size;
+    text_size *= (plot->flags & IMP_CAMERA_PERSPECTIVE)? sqrt(plot->zoom) : plot->zoom;
 
     color = BLACK;
 #define COLOR_AXES BLACK
@@ -232,16 +247,16 @@ void ImpDrawPlot(ImpPlot* plot, HMM_Vec3 camera_pos) {
         
         if (camera_pos.Z > center.Z) {
             /* Bottom */
-            ImpDrawGridLines(HMM_V3(min.X, margin.Y, min.Z), HMM_V3(min.X, margax.Y, min.Z),
-                             HMM_V3(max.X-min.X, 0, 0), c, N_GRID_LINES);
-            ImpDrawGridLines(HMM_V3(margin.X, min.Y, min.Z), HMM_V3(margax.X, min.Y, min.Z),
-                             HMM_V3(0, max.Y-min.Y, 0), c, N_GRID_LINES);
+            ImpDrawGridLines(plot->billboard_z, HMM_V3(min.X, margin.Y, min.Z), HMM_V3(min.X, margax.Y, min.Z),
+                             HMM_V3(max.X-min.X, 0, 0), c, N_GRID_LINES, 2*text_size);
+            ImpDrawGridLines(plot->billboard_z, HMM_V3(margin.X, min.Y, min.Z), HMM_V3(margax.X, min.Y, min.Z),
+                             HMM_V3(0, max.Y-min.Y, 0), c, N_GRID_LINES, 2*text_size);
         } else {
             /* Top */
-            ImpDrawGridLines(HMM_V3(max.X, margax.Y, max.Z), HMM_V3(max.X, margin.Y, max.Z),
-                             HMM_V3(min.X-max.X, 0, 0), c, N_GRID_LINES);
-            ImpDrawGridLines(HMM_V3(margax.X, max.Y, max.Z), HMM_V3(margin.X, max.Y, max.Z),
-                             HMM_V3(0, min.Y-max.Y, 0), c, N_GRID_LINES);
+            ImpDrawGridLines(plot->billboard_z, HMM_V3(max.X, margax.Y, max.Z), HMM_V3(max.X, margin.Y, max.Z),
+                             HMM_V3(min.X-max.X, 0, 0), c, N_GRID_LINES, 2*text_size);
+            ImpDrawGridLines(plot->billboard_z, HMM_V3(margax.X, max.Y, max.Z), HMM_V3(margin.X, max.Y, max.Z),
+                             HMM_V3(0, min.Y-max.Y, 0), c, N_GRID_LINES, 2*text_size);
         }
     }
 
@@ -251,17 +266,17 @@ void ImpDrawPlot(ImpPlot* plot, HMM_Vec3 camera_pos) {
                     
         if (camera_pos.Y > center.Y) {
             /* Right */
-            ImpDrawGridLines(HMM_V3(min.X, min.Y, margin.Z), HMM_V3(min.X, min.Y, margax.Z),
-                             HMM_V3(max.X-min.X, 0, 0), c, N_GRID_LINES);
-            ImpDrawGridLines(HMM_V3(margin.X, min.Y, min.Z), HMM_V3(margax.X, min.Y, min.Z),
-                             HMM_V3(0, 0, max.Z-min.Z), c, N_GRID_LINES);
+            ImpDrawGridLines(plot->billboard_z, HMM_V3(min.X, min.Y, margin.Z), HMM_V3(min.X, min.Y, margax.Z),
+                             HMM_V3(max.X-min.X, 0, 0), c, N_GRID_LINES, 2*text_size);
+            ImpDrawGridLines(plot->billboard_z, HMM_V3(margin.X, min.Y, min.Z), HMM_V3(margax.X, min.Y, min.Z),
+                             HMM_V3(0, 0, max.Z-min.Z), c, N_GRID_LINES, 2*text_size);
 
         } else {
             /* Left */
-            ImpDrawGridLines(HMM_V3(max.X, max.Y, margax.Z), HMM_V3(max.X, max.Y, margin.Z),
-                             HMM_V3(min.X-max.X, 0, 0), c, N_GRID_LINES);
-            ImpDrawGridLines(HMM_V3(margax.X, max.Y, max.Z), HMM_V3(margin.X, max.Y, max.Z),
-                             HMM_V3(0, 0, min.Z-max.Z), c, N_GRID_LINES);
+            ImpDrawGridLines(plot->billboard_z, HMM_V3(max.X, max.Y, margax.Z), HMM_V3(max.X, max.Y, margin.Z),
+                             HMM_V3(min.X-max.X, 0, 0), c, N_GRID_LINES, 2*text_size);
+            ImpDrawGridLines(plot->billboard_z, HMM_V3(margax.X, max.Y, max.Z), HMM_V3(margin.X, max.Y, max.Z),
+                             HMM_V3(0, 0, min.Z-max.Z), c, N_GRID_LINES, 2*text_size);
         }
     }
 
@@ -271,22 +286,20 @@ void ImpDrawPlot(ImpPlot* plot, HMM_Vec3 camera_pos) {
         
         if (camera_pos.X > center.X) {
             /* Near */
-            ImpDrawGridLines(HMM_V3(min.X, min.Y, margin.Z), HMM_V3(min.X, min.Y, margax.Z),
-                             HMM_V3(0, max.Y-min.Y, 0), c, N_GRID_LINES);
-            ImpDrawGridLines(HMM_V3(min.X, margin.Y, min.Z), HMM_V3(min.X, margax.Y, min.Z),
-                             HMM_V3(0, 0, max.Z-min.Z), c, N_GRID_LINES);
+            ImpDrawGridLines(plot->billboard_z, HMM_V3(min.X, min.Y, margin.Z), HMM_V3(min.X, min.Y, margax.Z),
+                             HMM_V3(0, max.Y-min.Y, 0), c, N_GRID_LINES, 2*text_size);
+            ImpDrawGridLines(plot->billboard_z, HMM_V3(min.X, margin.Y, min.Z), HMM_V3(min.X, margax.Y, min.Z),
+                             HMM_V3(0, 0, max.Z-min.Z), c, N_GRID_LINES, 2*text_size);
         } else {
             /* Far */
-            ImpDrawGridLines(HMM_V3(max.X, max.Y, margax.Z), HMM_V3(max.X, max.Y, margin.Z),
-                             HMM_V3(0, min.Y-max.Y, 0), c, N_GRID_LINES);
-            ImpDrawGridLines(HMM_V3(max.X, margax.Y, max.Z), HMM_V3(max.X, margin.Y, max.Z),
-                             HMM_V3(0, 0, min.Z-max.Z), c, N_GRID_LINES);
+            ImpDrawGridLines(plot->billboard_z, HMM_V3(max.X, max.Y, margax.Z), HMM_V3(max.X, max.Y, margin.Z),
+                             HMM_V3(0, min.Y-max.Y, 0), c, N_GRID_LINES, 2*text_size);
+            ImpDrawGridLines(plot->billboard_z, HMM_V3(max.X, margax.Y, max.Z), HMM_V3(max.X, margin.Y, max.Z),
+                             HMM_V3(0, 0, min.Z-max.Z), c, N_GRID_LINES, 2*text_size);
         }
     }
 
-    f32 text_size = plot->text_size;
     /* if (plot->flags & IMP_CAMERA_PERSPECTIVE) { */
-        text_size *= (plot->flags & IMP_CAMERA_PERSPECTIVE)? sqrt(plot->zoom) : plot->zoom;
     /* } */
     f32 num_text_size = text_size*0.66;
   
@@ -336,7 +349,7 @@ void ImpDrawPlot(ImpPlot* plot, HMM_Vec3 camera_pos) {
         HMM_Vec3 lclosest = closest; lclosest.Y = margin.Y;
         HMM_Vec3 lend = end; lend.Y = margax.Y;
 
-        DrawLine3D(PCAST(Vector3, lclosest), PCAST(Vector3, lend), c);
+        ImpDrawLine(plot->billboard_z, lclosest, lend, c, 2*text_size);
 
         for (s32 i = 0; i < N_GRID_LINES; i++) {
             f32 y = (f64)i/(f64)(N_GRID_LINES-1);
@@ -376,7 +389,7 @@ void ImpDrawPlot(ImpPlot* plot, HMM_Vec3 camera_pos) {
         HMM_Vec3 lclosest = closest; lclosest.Z = margin.Z;
         HMM_Vec3 lend = end; lend.Z = margax.Z;
         
-        DrawLine3D(PCAST(Vector3, lclosest), PCAST(Vector3, lend), c);
+        ImpDrawLine(plot->billboard_z, lclosest, lend, c, 2*text_size);
         
         for (s32 i = 0; i < N_GRID_LINES; i++) {
             f32 z = (f64)i/(f64)(N_GRID_LINES-1);
@@ -591,7 +604,7 @@ int main(void)
         BeginDrawing();
 
         ClearBackground(WHITE);
-        rlDisableBackfaceCulling();
+        /* rlDisableBackfaceCulling(); */
         
         BeginMode3D((Camera){0});
         rlSetMatrixProjection(PCAST(Matrix, Plot.projection));
@@ -603,7 +616,7 @@ int main(void)
         HMM_Vec3 billboard_r = HMM_MulM4V4(modelview_inv, HMM_V4(1,0,0,0)).XYZ;
         HMM_Vec3 billboard_u = HMM_MulM4V4(modelview_inv, HMM_V4(0,1,0,0)).XYZ;
         Plot.billboard = (ImpDrawPlane){ .bl = HMM_V3(0,0,0), .r = billboard_r, .u = billboard_u};
-        Plot.billboard_z = HMM_NormV3(HMM_Cross(billboard_r, billboard_u));
+        Plot.billboard_z = HMM_NormV3(HMM_Cross(billboard_u, billboard_r));
         
         ImpDrawPlot(&Plot, rot_pos);
 
