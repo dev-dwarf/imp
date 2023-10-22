@@ -34,7 +34,6 @@ extern Rectangle atlas_rect[256];
 static Texture atlas;
 
 #include "atlas.h"
-
 #include "imp.h"
 static Context *imp;
 
@@ -126,6 +125,16 @@ enum {
     IMP_TEXT_ALIGN_TOP    = 2,
 };
 
+void printMat(s32 rows, s32 cols, s32 mat[rows][cols]){
+    // Print Matrix
+    for (s32 i_y = 0; i_y < cols; i_y++) {
+        for (s32 i_x = 0; i_x < rows; i_x++) {
+            printf("%d ", mat[i_x][i_y]);
+        }
+        printf("\n");
+    }
+}
+
 static inline void ImpDrawTexQuadFromAtlas(ImpDrawPlane p, Rectangle tex, Color color) {
     rlSetTexture(atlas.id);
     HMM_Vec3 vbl = p.bl;
@@ -144,6 +153,31 @@ static inline void ImpDrawTexQuadFromAtlas(ImpDrawPlane p, Rectangle tex, Color 
     rlTexCoord2f(tbl.X, tbl.Y); rlVertex3f(vbl.X, vbl.Y, vbl.Z);
     rlTexCoord2f(tbr.X, tbr.Y); rlVertex3f(vbr.X, vbr.Y, vbr.Z);
     rlTexCoord2f(ttr.X, ttr.Y); rlVertex3f(vtr.X, vtr.Y, vtr.Z);
+    rlEnd();
+}
+
+
+static inline void ImpDrawSimpleTri(HMM_Vec3 start, HMM_Vec3 middle, HMM_Vec3 end, Color color) {
+    
+    rlBegin(RL_TRIANGLES);
+    rlColor4ub(color.r, color.g, color.b, color.a);
+    rlVertex3f(start.X, start.Y, start.Z);
+    rlColor4ub(color.r, color.g, color.b, color.a);
+    rlVertex3f(middle.X, middle.Y, middle.Z);
+    rlColor4ub(color.r, color.g, color.b, color.a);
+    rlVertex3f(end.X, end.Y, end.Z);
+    rlEnd();
+}
+
+static inline void ImpDrawColoredTri(HMM_Vec3 start, HMM_Vec3 middle, HMM_Vec3 end, Color color_start, Color color_middle, Color color_end) {
+    
+    rlBegin(RL_TRIANGLES);
+    rlColor4ub(color_start.r, color_start.g, color_start.b, color_start.a);
+    rlVertex3f(start.X, start.Y, start.Z);
+    rlColor4ub(color_middle.r, color_middle.g, color_middle.b, color_middle.a);
+    rlVertex3f(middle.X, middle.Y, middle.Z);
+    rlColor4ub(color_end.r, color_end.g, color_end.b, color_end.a);
+    rlVertex3f(end.X, end.Y, end.Z);
     rlEnd();
 }
 
@@ -411,12 +445,15 @@ int main(void)
     imp = malloc(sizeof(Context));
     imp_init(imp, 0, 0, 0);
 
+    f32 scale = 2.0;
+    f32 range = 2*PI;
+
     ImpPlot Plot = {
         .flags = IMP_PRESET_3D,// | IMP_CAMERA_PERSPECTIVE,
         .view_pos = {-1, -1, +1},
         .view_radius = {+1, +1, +1},
-        .plot_min = {-5, -5, -5},
-        .plot_max = {+5, +5, +5},
+        .plot_min = {-scale*range, -scale*range, -5},
+        .plot_max = {+scale*range, +scale*range, +5},
         /* .flags = IMP_PRESET_2D, // | IMP_CAMERA_PERSPECTIVE, */
         /* .view_pos = {0, 0, 1}, */
         .zoom = 1,
@@ -458,6 +495,7 @@ int main(void)
         };
 
         Image fileimg = LoadImage("src/atlas.png");
+
 
         ExportImage(fileimg, "src/atlas.png");
         ExportImageAsCode(fileimg, "src/atlas.h");
@@ -593,6 +631,7 @@ int main(void)
         ClearBackground(WHITE);
         rlDisableBackfaceCulling();
         
+        DrawFPS(150, 10);
         BeginMode3D((Camera){0});
         rlSetMatrixProjection(PCAST(Matrix, Plot.projection));
         HMM_Mat4 trans = HMM_TransposeM4(modelview);
@@ -621,45 +660,139 @@ int main(void)
         plane.r = HMM_MulV3(HMM_MulV3F(plane.r, 0.50*Plot.text_size*rect.width *(Plot.zoom)), plot_scale);
         plane.u = HMM_MulV3(HMM_MulV3F(plane.u, 0.50*Plot.text_size*rect.height*(Plot.zoom)), plot_scale);
 
-        rlBegin(RL_LINES);
-        for (s32 i = 0; i < points; i++) {
-            f32 r = 6.14 * (f32) i / (f32) points;
-            point2[i] = (HMM_Vec3){
-                .X = 5*cos(r*90)*sin(r*60+t),
-                .Y = 5*sin(r*90)*cos(r*60+t),
-                .Z = 5*sin(30*r)*cos(r*5+t)
-            };
-        }
-        for (s32 i = 0; i < points-1; i++) {
-            rlColor4ub(color.r, color.g, color.b, color.a);
-            rlVertex3f(point2[i].X, point2[i].Y, point2[i].Z);
-            rlVertex3f(point2[i+1].X, point2[i+1].Y, point2[i+1].Z);
-            /* Rectangle rect = atlas_rect[IMP_MARKER_CIRCLE + (i % IMP_MARKER_COUNT)]; */
-            /* ImpDrawPlane p = plane; */
-            /* p.bl = point2[i]; */
-            /* ImpDrawTexQuadFromAtlas(p, rect, color); */
-        }
-        rlEnd();
+        // rlBegin(RL_LINES);
+        // for (s32 i = 0; i < points; i++) {
+        //     f32 r = 6.14 * (f32) i / (f32) points;
+        //     point2[i] = (HMM_Vec3){
+        //         .X = 5*cos(r*90)*sin(r*60+t),
+        //         .Y = 5*sin(r*90)*cos(r*60+t),
+        //         .Z = 5*sin(30*r)*cos(r*5+t)
+        //     };
+        // }
+        // for (s32 i = 0; i < points-1; i++) {
+        //     rlColor4ub(color.r, color.g, color.b, color.a);
+        //     rlVertex3f(point2[i].X, point2[i].Y, point2[i].Z);
+        //     rlVertex3f(point2[i+1].X, point2[i+1].Y, point2[i+1].Z);
+        //     /* Rectangle rect = atlas_rect[IMP_MARKER_CIRCLE + (i % IMP_MARKER_COUNT)]; */
+        //     /* ImpDrawPlane p = plane; */
+        //     /* p.bl = point2[i]; */
+        //     /* ImpDrawTexQuadFromAtlas(p, rect, color); */
+        // }
+        // rlEnd();
 
+
+        s32 num_x_samples = 200;
+        s32 num_y_samples = 200;
+        s32 xx[num_x_samples][num_y_samples];
+        s32 yy[num_y_samples][num_x_samples];
+        for (s32 i_y = 0; i_y < num_y_samples; i_y++) {
+            for (s32 i_x = 0; i_x < num_x_samples; i_x++) {
+                xx[i_x][i_y] = i_x;
+            }
+        }
+
+        for (s32 i_y = 0; i_y < num_y_samples; i_y++) {
+            for (s32 i_x = 0; i_x < num_x_samples; i_x++) {
+                yy[i_y][i_x] = i_x;
+            }
+        }
+
+
+        f32 x_min = -range*scale;
+        f32 x_max = range*scale;
+        f32 y_min = -range*scale;
+        f32 y_max = range*scale;
+        
+        f32 x_values[num_x_samples];
+
+        for (s32 i = 0; i < num_x_samples; i++) {
+            x_values[i] = x_min + (x_max - x_min)*((f32)i/(f32)(num_x_samples-1));
+        }
+        f32 y_values[num_y_samples];
+        for (s32 i = 0; i < num_y_samples; i++) {
+            y_values[i] = y_min + (y_max - y_min)*((f32)i/(num_y_samples-1));
+        }
+
+        f32 plot_func(f32 x, f32 y) {
+            return cos(3.0*cos(t/3.0)*x+t)*sin(sin(t)*y+3.0*t)*cos(x-t)*cos(y-5.0*t)*sin(y/3.0+t) + sin(x-t)*cos(sin(t)*y-t);
+            // return sin(sqrt(x*x*t + y*y*t));
+        }
+        
+        f32 min_h = 10000.0;
+        f32 max_h = -10000.0;
+        rlEnableDepthTest();
+
+        f32 z_values[num_x_samples][num_y_samples];
+        for (s32 i_x = 0; i_x < num_x_samples; i_x++) {
+            for (s32 i_y = 0; i_y < num_y_samples; i_y++) {
+                f32 xl = x_values[xx[i_x][i_y]];
+                f32 yl = y_values[yy[i_x][i_y]];
+                z_values[i_x][i_y] = plot_func(xl, yl);
+            }
+        }
+
+        for (s32 i_x = 0; i_x < num_x_samples-1; i_x++) {
+            for (s32 i_y = 0; i_y < num_y_samples-1; i_y++) {
+                f32 zll = z_values[i_x][i_y];
+                f32 zhl = z_values[i_x +1][i_y];
+                f32 zlh = z_values[i_x][i_y+1];
+                f32 zhh = z_values[i_x+1][i_y+1];
+
+                min_h = HMM_MIN(min_h, HMM_MIN(zll, HMM_MIN(zlh, HMM_MIN(zhl, zhh))));
+                max_h = HMM_MAX(max_h, HMM_MAX(zll, HMM_MAX(zlh, HMM_MAX(zhl, zhh))));
+            }
+        }
+        for (s32 i_x = 0; i_x < num_x_samples-1; i_x++) {
+            for (s32 i_y = 0; i_y < num_y_samples-1; i_y++) {
+                f32 xl = x_values[xx[i_x][i_y]];
+                f32 yl = y_values[yy[i_x][i_y]];
+                f32 xh = x_values[xx[i_x+1][i_y]];
+                f32 yh = y_values[yy[i_x][i_y+1]];
+
+                f32 zll = z_values[i_x][i_y];
+                f32 zhl = z_values[i_x+1][i_y];
+                f32 zlh = z_values[i_x][i_y+1];
+                f32 zhh = z_values[i_x+1][i_y+1];
+
+                HMM_Vec3 bottom = (HMM_Vec3){xl, yl, zll};
+                HMM_Vec3 x_mid = (HMM_Vec3){xh,yl,zhl};
+                HMM_Vec3 y_mid = (HMM_Vec3){xl,yh,zlh};
+                HMM_Vec3 top = (HMM_Vec3){xh,yh,zhh};
+
+                // HMM_Vec3 normal_x_mid = HMM_NormV3(HMM_Cross(HMM_SubV3(top,x_mid), HMM_SubV3(bottom,x_mid)));
+                // HMM_Vec3 normal_y_mid = HMM_NormV3(HMM_Cross(HMM_SubV3(bottom,y_mid), HMM_SubV3(top,y_mid)));
+
+                // HMM_Vec3 light_dir = (HMM_Vec3){-1.0, -1.0, 0.0};
+                // f32 x_mid_color = HMM_DotV3(light_dir, normal_x_mid);
+                // f32 y_mid_color = HMM_DotV3(light_dir, normal_y_mid);
+                // x_mid_color = x_mid_color > 0.0 ? x_mid_color : 0.0;
+                // y_mid_color = y_mid_color > 0.0 ? y_mid_color : 0.0;
+
+                f32 range = max_h - min_h;
+                f32 val_bottom = 255.0*(zll - min_h)/(f32)range;
+                f32 val_x_mid = 255.0*(zhl - min_h)/(f32)range;
+                f32 val_y_mid = 255.0*(zlh - min_h)/(f32)range;
+                f32 val_top = 255.0*(zhh - min_h)/(f32)range;
+
+                Color col_bottom = (Color) {val_bottom, 0.3*val_bottom+50, 0.4*val_bottom+100, 255};
+                Color col_x_mid = (Color)  {val_x_mid,  0.3*val_x_mid+50,  0.4*val_x_mid+100, 255};
+                Color col_y_mid = (Color)  {val_y_mid,  0.3*val_y_mid+50,  0.4*val_y_mid+100, 255};
+                Color col_top = (Color)    {val_top,    0.3*val_top+50,    0.4*val_top+100, 255};
+                ImpDrawColoredTri(bottom, x_mid, top, col_bottom, col_x_mid, col_top);
+                ImpDrawColoredTri(bottom, y_mid, top, col_bottom, col_y_mid, col_top);
+                // ImpDrawSimpleTri(bottom, x_mid, top, (Color){255.0 * 0.5*(normal_x_mid.X + 1), 255.0 * 0.5*(normal_x_mid.Y + 1), 255.0 * 0.35*(normal_x_mid.Z + 1), 255.0});
+                // ImpDrawSimpleTri(bottom, y_mid, top, (Color){255.0 * 0.5*(normal_y_mid.X + 1), 255.0 * 0.5*(normal_y_mid.Y + 1), 255.0 * 0.35*(normal_y_mid.Z + 1), 255.0});
+                // ImpDrawSimpleTri(bottom, x_mid, top, (Color){255.0*x_mid_color,255.0*x_mid_color,255.0*x_mid_color,255.0});
+                // ImpDrawSimpleTri(bottom, y_mid, top, (Color){255.0*y_mid_color,255.0*y_mid_color,255.0*y_mid_color,255.0});
+
+            }
+        }
+
+        // printf("Num points: %d\n", num_x_samples*num_y_samples);
         t += GetFrameTime();
-
-
-        
         rlPopMatrix();
-        /* rlEnableDepthTest(); */
-
         EndMode3D();
-
-
-
         DrawTexture(atlas, 0, 0, RED);
-        /* for (s32 i = 0; i < 256; i++) { */
-            /* DrawRectangleLinesEx(atlas_rect[i], 0.5, BLUE); */
-        /* } */
-
-        
-        /* printf("%f, %f, %f\n", view_pos.X, view_pos.Y, view_pos.Z); */
-        
         EndDrawing();
     }
     
@@ -667,6 +800,9 @@ int main(void)
     
     return 0;
 }
+
+
+
 
 Rectangle atlas_rect[256] = {
     [ MU_ICON_CLOSE ] = { 88, 68, 16, 16 },
