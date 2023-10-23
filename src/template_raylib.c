@@ -109,6 +109,11 @@ typedef struct ImpPlot {
     HMM_Vec3 billboard_z;
     HMM_Vec3 camera_pos;
 
+    str xlabel;
+    str ylabel;
+    str zlabel;
+    
+
     f32 text_size;
     f32 line_size;
     HMM_Vec3 text_percent_offset;
@@ -345,8 +350,7 @@ void ImpDrawPlot(ImpPlot* plot, HMM_Vec3 camera_pos) {
         ImpDrawPlane p = plot->billboard;
         p.bl = HMM_MulV3F(closest, label_percent_offset.X);
         p.bl.X = HMM_Lerp(closest.X, (camera_pos.X > center.X)? 0.1 : 0.9, end.X);
-        str s = imp_str("Parties");
-        /* str s = imp_str("X"); */
+        str s = plot->xlabel.str? plot->xlabel : imp_str("X");
         p = ImpAlignText(p, ImpMeasureText(s), plot->text_size, align_h, align_v);
         ImpDrawText3D(p, s, c, text_size);
     }
@@ -380,8 +384,7 @@ void ImpDrawPlot(ImpPlot* plot, HMM_Vec3 camera_pos) {
         ImpDrawPlane p = plot->billboard;
         p.bl = HMM_MulV3F(closest, label_percent_offset.Y);
         p.bl.Y = HMM_Lerp(closest.Y, (camera_pos.Y > center.Y)? 0.1 : 0.9, end.Y);
-        str s = imp_str("Potatoes");
-        /* str s = imp_str("Y"); */
+        str s = plot->ylabel.str? plot->ylabel : imp_str("Y");
         p = ImpAlignText(p, ImpMeasureText(s), plot->text_size, align_h, align_v);
         ImpDrawText3D(p, s, c, text_size);
     }
@@ -424,8 +427,7 @@ void ImpDrawPlot(ImpPlot* plot, HMM_Vec3 camera_pos) {
         p.bl = closest;
         p.bl.Z = (camera_pos.Z < center.Z)? min.Z - plot->view_radius.Z*0.05 : max.Z + plot->view_radius.Z*0.05;
         align_h = IMP_TEXT_ALIGN_CENTER;
-        str s = imp_str("Happiness");
-        /* str s = imp_str("Z"); */
+        str s = plot->zlabel.str? plot->zlabel : imp_str("Z");
         p = ImpAlignText(p, ImpMeasureText(s), plot->text_size, align_h, align_v);
         ImpDrawText3D(p, s, c, text_size);
     }
@@ -454,6 +456,8 @@ int main(void)
         .zoom = 1,
         .fov = 75,
         .grid_margin = 0.05,
+
+        .xlabel = imp_str("Axis Label"),
     };
 
     f32 max_radius = HMM_MAX(Plot.view_radius.X, HMM_MAX(Plot.view_radius.Y, Plot.view_radius.Z));
@@ -734,7 +738,7 @@ Rectangle atlas_rect[256] = {
     [ IMP_LINE_TEXTURE ] = { 1, 80, 2, 16},
         
     [ ATLAS_WHITE ] = { 125, 68, 3, 3 },
-    [ ATLAS_FONT+32 ] = { 84, 68, 2, 17 },
+    [ ATLAS_FONT+32 ] = { 112, 80, 3, 17 },
     [ ATLAS_FONT+33 ] = { 39, 68, 3, 17 },
     [ ATLAS_FONT+34 ] = { 114, 51, 5, 17 },
     [ ATLAS_FONT+35 ] = { 34, 17, 7, 17 },
@@ -811,9 +815,9 @@ Rectangle atlas_rect[256] = {
     [ ATLAS_FONT+106 ] = { 80, 68, 3, 17 },
     [ ATLAS_FONT+107 ] = { 72, 51, 6, 17 },
     [ ATLAS_FONT+108 ] = { 83, 68, 3, 17 },
-    [ ATLAS_FONT+109 ] = { 48, 0, 10, 17 },
+    [ ATLAS_FONT+109 ] = { 48.5, 0, 9.5, 17 },
     [ ATLAS_FONT+110 ] = { 118.5, 17, 6, 17 },
-    [ ATLAS_FONT+111 ] = { 0, 18, 6, 17 },
+    [ ATLAS_FONT+111 ] = { 0, 18, 7, 17 },
     [ ATLAS_FONT+112 ] = { 7, 18, 6.5, 17 },
     [ ATLAS_FONT+113 ] = { 14, 34, 7, 17 },
     [ ATLAS_FONT+114 ] = { 23, 68, 4, 17 },
