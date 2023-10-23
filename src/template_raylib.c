@@ -1,7 +1,4 @@
 /* TODO(lcf, September 26, 2023)
-   - render axes near 0
-   - centered, left, right text
-
    - major and minor grids
    -- should be able to set number of grid lines
    -- should also have good defaults that dont require config
@@ -457,7 +454,7 @@ int main(void)
         .fov = 75,
         .grid_margin = 0.05,
 
-        .xlabel = imp_str("Axis Label"),
+        .xlabel = imp_str("abcdefghijklmnopqrstuvwxyz"),
     };
 
     f32 max_radius = HMM_MAX(Plot.view_radius.X, HMM_MAX(Plot.view_radius.Y, Plot.view_radius.Z));
@@ -803,24 +800,24 @@ Rectangle atlas_rect[256] = {
     [ ATLAS_FONT+94 ] = { 42, 51, 6, 17 },
     [ ATLAS_FONT+95 ] = { 15, 68, 4, 17 },
     [ ATLAS_FONT+96 ] = { 49, 51, 4, 17 },
-    [ ATLAS_FONT+97 ] = { 54, 51, 6, 17 },
-    [ ATLAS_FONT+98 ] = { 97, 17, 7, 17 },
-    [ ATLAS_FONT+99 ] = { 0, 52, 5, 17 },
-    [ ATLAS_FONT+100 ] = { 104, 17, 7, 17 },
+    [ ATLAS_FONT+97 ] = { 52, 51, 6, 17 },
+    [ ATLAS_FONT+98 ] = { 97, 17, 6.5, 17 },
+    [ ATLAS_FONT+99 ] = { 0, 52, 4.5, 17 },
+    [ ATLAS_FONT+100 ] = { 104, 17, 6.5, 17 },
     [ ATLAS_FONT+101 ] = { 60, 51, 5.5, 17 },
     [ ATLAS_FONT+102 ] = { 19, 68, 4, 17 },
     [ ATLAS_FONT+103 ] = { 66, 51, 6, 17 },
     [ ATLAS_FONT+104 ] = { 111, 17, 7, 17 },
     [ ATLAS_FONT+105 ] = { 76, 68, 3, 17 },
-    [ ATLAS_FONT+106 ] = { 80, 68, 3, 17 },
-    [ ATLAS_FONT+107 ] = { 72, 51, 6, 17 },
+    [ ATLAS_FONT+106 ] = { 80, 77, 3, 17 },
+    [ ATLAS_FONT+107 ] = { 112, 83, 6, 17 },
     [ ATLAS_FONT+108 ] = { 83, 68, 3, 17 },
     [ ATLAS_FONT+109 ] = { 48.5, 0, 9.5, 17 },
     [ ATLAS_FONT+110 ] = { 118.5, 17, 6, 17 },
     [ ATLAS_FONT+111 ] = { 0, 18, 7, 17 },
     [ ATLAS_FONT+112 ] = { 7, 18, 6.5, 17 },
     [ ATLAS_FONT+113 ] = { 14, 34, 7, 17 },
-    [ ATLAS_FONT+114 ] = { 23, 68, 4, 17 },
+    [ ATLAS_FONT+114 ] = { 24, 68, 3.5, 17 },
     [ ATLAS_FONT+115 ] = { 5, 52, 5, 17 },
     [ ATLAS_FONT+116 ] = { 27, 68, 4, 17 },
     [ ATLAS_FONT+117 ] = { 21, 34, 7, 17 },
