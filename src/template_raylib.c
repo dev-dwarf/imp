@@ -33,6 +33,10 @@ extern unsigned char atlas_data[ATLAS_WIDTH * ATLAS_HEIGHT];
 extern Rectangle atlas_rect[256];
 static Texture atlas;
 
+
+#define f32_MIN ((f32)-3.4028234664e+38)
+#define f32_MAX ((f32) 3.4028234664e+38)
+
 #include "atlas.h"
 #include "imp.h"
 static Context *imp;
@@ -80,6 +84,11 @@ enum {
 
     IMP_DRAW_MARKERS         = 1 << 16,
     IMP_DRAW_LINES           = 1 << 17,
+
+
+    IMP_SURFACE_COLOR_NORMAL = 1 << 18,
+    IMP_SURFACE_COLOR_HEIGHT = 1 << 19,
+    IMP_SURFACE_COLOR_LIGHTSOURCE = 1 << 20,
 
     IMP_AXIS_ALL             = (IMP_AXIS_X | IMP_AXIS_Y | IMP_AXIS_Z),
     IMP_GRID_ALL             = (IMP_GRID_YZ | IMP_GRID_ZX | IMP_GRID_XY),
@@ -243,6 +252,8 @@ static void ImpDrawText3D(ImpDrawPlane plane, str text, Color color, f32 size) {
         plane.bl = HMM_AddV3(plane.bl, p.r);
     }
 }
+
+// static void ImpMeshGrid()
 
 void ImpDrawPlot(ImpPlot* plot, HMM_Vec3 camera_pos) {
     Color color = {.r = 0xdd, .g = 0xdd, .b = 0xdd, .a = 0xff};
@@ -433,6 +444,91 @@ void ImpDrawPlot(ImpPlot* plot, HMM_Vec3 camera_pos) {
     }
 }
 
+
+void ImpDrawSurface(ImpPlot* plot, u32 num_x_samples, u32 num_y_samples, f32 *x_data, f32 *y_data, f32 *z_data) {
+
+    f32 min_h = f32_MAX;
+    f32 max_h = f32_MIN;
+    if (plot->flags & IMP_SURFACE_COLOR_HEIGHT) {
+        for (s32 i_x = 0; i_x < num_x_samples-1; i_x++) {
+            for (s32 i_y = 0; i_y < num_y_samples-1; i_y++) {
+                f32 zll = *(z_data + i_x * num_y_samples + i_y);
+                f32 zhl = *(z_data + (i_x + 1) * num_y_samples + i_y);
+                f32 zlh = *(z_data + i_x * num_y_samples + (i_y + 1));
+                f32 zhh = *(z_data + (i_x + 1)* num_y_samples + (i_y + 1));
+
+                min_h = HMM_MIN(min_h, HMM_MIN(zll, HMM_MIN(zlh, HMM_MIN(zhl, zhh))));
+                max_h = HMM_MAX(max_h, HMM_MAX(zll, HMM_MAX(zlh, HMM_MAX(zhl, zhh))));
+            }
+        }
+        
+    }
+
+    // Draw that mesh!
+    for (s32 i_x = 0; i_x < num_x_samples-1; i_x++) {
+        for (s32 i_y = 0; i_y < num_y_samples-1; i_y++) {
+            
+            f32 xl = x_data[i_x];
+            f32 yl = y_data[i_y];
+            f32 xh = x_data[i_x+1];
+            f32 yh = y_data[i_y+1];
+
+            f32 zll = *(z_data + i_x * num_y_samples + i_y);
+            f32 zhl = *(z_data + (i_x + 1) * num_y_samples + i_y);
+            f32 zlh = *(z_data + i_x * num_y_samples + (i_y + 1));
+            f32 zhh = *(z_data + (i_x + 1)* num_y_samples + (i_y + 1));
+            // f32 zll = z_data[i_x][i_y];
+            // f32 zhl = z_data[i_x+1][i_y];
+            // f32 zlh = z_data[i_x][i_y+1];
+            // f32 zhh = z_data[i_x+1][i_y+1];
+
+            HMM_Vec3 bottom = (HMM_Vec3){xl, yl, zll};
+            HMM_Vec3 x_mid = (HMM_Vec3){xh,yl,zhl};
+            HMM_Vec3 y_mid = (HMM_Vec3){xl,yh,zlh};
+            HMM_Vec3 top = (HMM_Vec3){xh,yh,zhh};
+
+            HMM_Vec3 normal_x_mid;
+            HMM_Vec3 normal_y_mid;            
+
+            if (plot->flags & IMP_SURFACE_COLOR_NORMAL || plot->flags & IMP_SURFACE_COLOR_LIGHTSOURCE) {
+                normal_x_mid = HMM_NormV3(HMM_Cross(HMM_SubV3(top,x_mid), HMM_SubV3(bottom,x_mid)));
+                normal_y_mid = HMM_NormV3(HMM_Cross(HMM_SubV3(bottom,y_mid), HMM_SubV3(top,y_mid)));
+            }
+
+            if (plot->flags & IMP_SURFACE_COLOR_NORMAL) {
+                ImpDrawSimpleTri(bottom, x_mid, top, (Color){255.0 * 0.5*(normal_x_mid.X + 1), 255.0 * 0.5*(normal_x_mid.Y + 1), 255.0 * 0.35*(normal_x_mid.Z + 1), 255.0});
+                ImpDrawSimpleTri(y_mid, bottom, top, (Color){255.0 * 0.5*(normal_y_mid.Y + 1), 255.0 * 0.5*(normal_y_mid.X + 1), 255.0 * 0.35*(normal_y_mid.Z + 1), 255.0});
+            }
+
+            if (plot->flags & IMP_SURFACE_COLOR_LIGHTSOURCE) {
+                HMM_Vec3 light_dir = HMM_NormV3((HMM_Vec3){-1.0, -1.0, 0.0});
+                f32 x_mid_color = HMM_DotV3(light_dir, normal_x_mid);
+                f32 y_mid_color = HMM_DotV3(light_dir, normal_y_mid);
+                x_mid_color = x_mid_color > 0.0 ? x_mid_color : 0.0;
+                y_mid_color = y_mid_color > 0.0 ? y_mid_color : 0.0;
+                ImpDrawSimpleTri(bottom, x_mid, top, (Color){255.0*x_mid_color,255.0*x_mid_color,255.0*x_mid_color,255.0});
+                ImpDrawSimpleTri(y_mid, bottom, top, (Color){255.0*y_mid_color,255.0*y_mid_color,255.0*y_mid_color,255.0});
+            }
+
+            if (plot -> flags & IMP_SURFACE_COLOR_HEIGHT) {
+                f32 range = max_h - min_h;
+                f32 val_bottom = 255.0*(zll - min_h)/(f32)range;
+                f32 val_x_mid = 255.0*(zhl - min_h)/(f32)range;
+                f32 val_y_mid = 255.0*(zlh - min_h)/(f32)range;
+                f32 val_top = 255.0*(zhh - min_h)/(f32)range;
+
+                Color col_bottom = (Color) {val_bottom, 0.3*val_bottom+50, 0.4*val_bottom+100, 255};
+                Color col_x_mid = (Color)  {val_x_mid,  0.3*val_x_mid+50,  0.4*val_x_mid+100, 255};
+                Color col_y_mid = (Color)  {val_y_mid,  0.3*val_y_mid+50,  0.4*val_y_mid+100, 255};
+                Color col_top = (Color)    {val_top,    0.3*val_top+50,    0.4*val_top+100, 255};
+                ImpDrawColoredTri(bottom, x_mid, top, col_bottom, col_x_mid, col_top);
+                ImpDrawColoredTri(y_mid, bottom, top, col_y_mid, col_bottom, col_top);
+            }
+        }
+    }
+    
+}
+
 void imp_update_plot_controls(Context *imp, ImpPlot *plot) {
     /* TODO move update code in here and get controls from imp context */
 }
@@ -445,11 +541,11 @@ int main(void)
     imp = malloc(sizeof(Context));
     imp_init(imp, 0, 0, 0);
 
-    f32 scale = 2.0;
+    f32 scale = 1.0;
     f32 range = 2*PI;
 
     ImpPlot Plot = {
-        .flags = IMP_PRESET_3D,// | IMP_CAMERA_PERSPECTIVE,
+        .flags = IMP_PRESET_3D | IMP_SURFACE_COLOR_NORMAL,// | IMP_CAMERA_PERSPECTIVE,
         .view_pos = {-1, -1, +1},
         .view_radius = {+1, +1, +1},
         .plot_min = {-scale*range, -scale*range, -5},
@@ -681,22 +777,9 @@ int main(void)
         // rlEnd();
 
 
-        s32 num_x_samples = 200;
+        s32 num_x_samples = 50;
         s32 num_y_samples = 200;
-        s32 xx[num_x_samples][num_y_samples];
-        s32 yy[num_y_samples][num_x_samples];
-        for (s32 i_y = 0; i_y < num_y_samples; i_y++) {
-            for (s32 i_x = 0; i_x < num_x_samples; i_x++) {
-                xx[i_x][i_y] = i_x;
-            }
-        }
-
-        for (s32 i_y = 0; i_y < num_y_samples; i_y++) {
-            for (s32 i_x = 0; i_x < num_x_samples; i_x++) {
-                yy[i_y][i_x] = i_x;
-            }
-        }
-
+        
 
         f32 x_min = -range*scale;
         f32 x_max = range*scale;
@@ -718,75 +801,18 @@ int main(void)
             // return sin(sqrt(x*x*t + y*y*t));
         }
         
-        f32 min_h = 10000.0;
-        f32 max_h = -10000.0;
         rlEnableDepthTest();
 
         f32 z_values[num_x_samples][num_y_samples];
         for (s32 i_x = 0; i_x < num_x_samples; i_x++) {
             for (s32 i_y = 0; i_y < num_y_samples; i_y++) {
-                f32 xl = x_values[xx[i_x][i_y]];
-                f32 yl = y_values[yy[i_x][i_y]];
+                f32 xl = x_values[i_x];
+                f32 yl = y_values[i_y];
                 z_values[i_x][i_y] = plot_func(xl, yl);
             }
         }
 
-        for (s32 i_x = 0; i_x < num_x_samples-1; i_x++) {
-            for (s32 i_y = 0; i_y < num_y_samples-1; i_y++) {
-                f32 zll = z_values[i_x][i_y];
-                f32 zhl = z_values[i_x +1][i_y];
-                f32 zlh = z_values[i_x][i_y+1];
-                f32 zhh = z_values[i_x+1][i_y+1];
-
-                min_h = HMM_MIN(min_h, HMM_MIN(zll, HMM_MIN(zlh, HMM_MIN(zhl, zhh))));
-                max_h = HMM_MAX(max_h, HMM_MAX(zll, HMM_MAX(zlh, HMM_MAX(zhl, zhh))));
-            }
-        }
-        for (s32 i_x = 0; i_x < num_x_samples-1; i_x++) {
-            for (s32 i_y = 0; i_y < num_y_samples-1; i_y++) {
-                f32 xl = x_values[xx[i_x][i_y]];
-                f32 yl = y_values[yy[i_x][i_y]];
-                f32 xh = x_values[xx[i_x+1][i_y]];
-                f32 yh = y_values[yy[i_x][i_y+1]];
-
-                f32 zll = z_values[i_x][i_y];
-                f32 zhl = z_values[i_x+1][i_y];
-                f32 zlh = z_values[i_x][i_y+1];
-                f32 zhh = z_values[i_x+1][i_y+1];
-
-                HMM_Vec3 bottom = (HMM_Vec3){xl, yl, zll};
-                HMM_Vec3 x_mid = (HMM_Vec3){xh,yl,zhl};
-                HMM_Vec3 y_mid = (HMM_Vec3){xl,yh,zlh};
-                HMM_Vec3 top = (HMM_Vec3){xh,yh,zhh};
-
-                // HMM_Vec3 normal_x_mid = HMM_NormV3(HMM_Cross(HMM_SubV3(top,x_mid), HMM_SubV3(bottom,x_mid)));
-                // HMM_Vec3 normal_y_mid = HMM_NormV3(HMM_Cross(HMM_SubV3(bottom,y_mid), HMM_SubV3(top,y_mid)));
-
-                // HMM_Vec3 light_dir = (HMM_Vec3){-1.0, -1.0, 0.0};
-                // f32 x_mid_color = HMM_DotV3(light_dir, normal_x_mid);
-                // f32 y_mid_color = HMM_DotV3(light_dir, normal_y_mid);
-                // x_mid_color = x_mid_color > 0.0 ? x_mid_color : 0.0;
-                // y_mid_color = y_mid_color > 0.0 ? y_mid_color : 0.0;
-
-                f32 range = max_h - min_h;
-                f32 val_bottom = 255.0*(zll - min_h)/(f32)range;
-                f32 val_x_mid = 255.0*(zhl - min_h)/(f32)range;
-                f32 val_y_mid = 255.0*(zlh - min_h)/(f32)range;
-                f32 val_top = 255.0*(zhh - min_h)/(f32)range;
-
-                Color col_bottom = (Color) {val_bottom, 0.3*val_bottom+50, 0.4*val_bottom+100, 255};
-                Color col_x_mid = (Color)  {val_x_mid,  0.3*val_x_mid+50,  0.4*val_x_mid+100, 255};
-                Color col_y_mid = (Color)  {val_y_mid,  0.3*val_y_mid+50,  0.4*val_y_mid+100, 255};
-                Color col_top = (Color)    {val_top,    0.3*val_top+50,    0.4*val_top+100, 255};
-                ImpDrawColoredTri(bottom, x_mid, top, col_bottom, col_x_mid, col_top);
-                ImpDrawColoredTri(bottom, y_mid, top, col_bottom, col_y_mid, col_top);
-                // ImpDrawSimpleTri(bottom, x_mid, top, (Color){255.0 * 0.5*(normal_x_mid.X + 1), 255.0 * 0.5*(normal_x_mid.Y + 1), 255.0 * 0.35*(normal_x_mid.Z + 1), 255.0});
-                // ImpDrawSimpleTri(bottom, y_mid, top, (Color){255.0 * 0.5*(normal_y_mid.X + 1), 255.0 * 0.5*(normal_y_mid.Y + 1), 255.0 * 0.35*(normal_y_mid.Z + 1), 255.0});
-                // ImpDrawSimpleTri(bottom, x_mid, top, (Color){255.0*x_mid_color,255.0*x_mid_color,255.0*x_mid_color,255.0});
-                // ImpDrawSimpleTri(bottom, y_mid, top, (Color){255.0*y_mid_color,255.0*y_mid_color,255.0*y_mid_color,255.0});
-
-            }
-        }
+        ImpDrawSurface(&Plot, num_x_samples, num_y_samples, x_values, y_values, z_values[0]);
 
         // printf("Num points: %d\n", num_x_samples*num_y_samples);
         t += GetFrameTime();
