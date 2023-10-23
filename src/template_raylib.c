@@ -496,8 +496,9 @@ void ImpDrawSurface(ImpPlot* plot, u32 num_x_samples, u32 num_y_samples, f32 *x_
             }
 
             if (plot->flags & IMP_SURFACE_COLOR_NORMAL) {
+
                 ImpDrawSimpleTri(bottom, x_mid, top, (Color){255.0 * 0.5*(normal_x_mid.X + 1), 255.0 * 0.5*(normal_x_mid.Y + 1), 255.0 * 0.35*(normal_x_mid.Z + 1), 255.0});
-                ImpDrawSimpleTri(y_mid, bottom, top, (Color){255.0 * 0.5*(normal_y_mid.Y + 1), 255.0 * 0.5*(normal_y_mid.X + 1), 255.0 * 0.35*(normal_y_mid.Z + 1), 255.0});
+                ImpDrawSimpleTri(y_mid, bottom, top, (Color){255.0 * 0.5*(normal_y_mid.X + 1), 255.0 * 0.5*(normal_y_mid.Y + 1), 255.0 * 0.35*(normal_y_mid.Z + 1), 255.0});
             }
 
             if (plot->flags & IMP_SURFACE_COLOR_LIGHTSOURCE) {
@@ -545,7 +546,7 @@ int main(void)
     f32 range = 2*PI;
 
     ImpPlot Plot = {
-        .flags = IMP_PRESET_3D | IMP_SURFACE_COLOR_NORMAL,// | IMP_CAMERA_PERSPECTIVE,
+        .flags = IMP_PRESET_3D | IMP_SURFACE_COLOR_HEIGHT,// | IMP_CAMERA_PERSPECTIVE,
         .view_pos = {-1, -1, +1},
         .view_radius = {+1, +1, +1},
         .plot_min = {-scale*range, -scale*range, -5},
