@@ -454,7 +454,7 @@ int main(void)
         .fov = 75,
         .grid_margin = 0.05,
 
-        .xlabel = imp_str("abcdefghijklmnopqrstuvwxyz"),
+        .xlabel = imp_str("ABCDEFGHIJKLMNOPQRSTUVWXYZ"),
     };
 
     f32 max_radius = HMM_MAX(Plot.view_radius.X, HMM_MAX(Plot.view_radius.Y, Plot.view_radius.Z));
@@ -793,7 +793,7 @@ Rectangle atlas_rect[256] = {
     [ ATLAS_FONT+87 ] = { 38, 0, 10, 17 },
     [ ATLAS_FONT+88 ] = { 90, 17, 7, 17 },
     [ ATLAS_FONT+89 ] = { 30, 51, 6, 17 },
-    [ ATLAS_FONT+90 ] = { 36, 51, 6, 17 },
+    [ ATLAS_FONT+90 ] = { 36.5, 51, 5.5, 17 },
     [ ATLAS_FONT+91 ] = { 69, 68, 3, 17 },
     [ ATLAS_FONT+92 ] = { 124, 51, 4, 17 },
     [ ATLAS_FONT+93 ] = { 72, 68, 3, 17 },
@@ -810,7 +810,7 @@ Rectangle atlas_rect[256] = {
     [ ATLAS_FONT+104 ] = { 111, 17, 7, 17 },
     [ ATLAS_FONT+105 ] = { 76, 68, 3, 17 },
     [ ATLAS_FONT+106 ] = { 80, 77, 3, 17 },
-    [ ATLAS_FONT+107 ] = { 112, 83, 6, 17 },
+    [ ATLAS_FONT+107 ] = { 112, 83, 5.5, 17 },
     [ ATLAS_FONT+108 ] = { 83, 68, 3, 17 },
     [ ATLAS_FONT+109 ] = { 48.5, 0, 9.5, 17 },
     [ ATLAS_FONT+110 ] = { 118.5, 17, 6, 17 },
