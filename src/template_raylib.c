@@ -89,6 +89,7 @@ enum {
     IMP_SURFACE_COLOR_NORMAL = 1 << 18,
     IMP_SURFACE_COLOR_HEIGHT = 1 << 19,
     IMP_SURFACE_COLOR_LIGHTSOURCE = 1 << 20,
+    IMP_SURFACE_COLOR_MATCAP = 1 << 21,
 
     IMP_AXIS_ALL             = (IMP_AXIS_X | IMP_AXIS_Y | IMP_AXIS_Z),
     IMP_GRID_ALL             = (IMP_GRID_YZ | IMP_GRID_ZX | IMP_GRID_XY),
@@ -445,7 +446,7 @@ void ImpDrawPlot(ImpPlot* plot, HMM_Vec3 camera_pos) {
 }
 
 
-void ImpDrawSurface(ImpPlot* plot, u32 num_x_samples, u32 num_y_samples, f32 *x_data, f32 *y_data, f32 *z_data) {
+void ImpDrawSurface(ImpPlot* plot, Image *matcap, HMM_Vec3 plot_scale, u32 num_x_samples, u32 num_y_samples, f32 *x_data, f32 *y_data, f32 *z_data) {
 
     f32 min_h = f32_MAX;
     f32 max_h = f32_MIN;
@@ -473,14 +474,10 @@ void ImpDrawSurface(ImpPlot* plot, u32 num_x_samples, u32 num_y_samples, f32 *x_
             f32 xh = x_data[i_x+1];
             f32 yh = y_data[i_y+1];
 
-            f32 zll = *(z_data + i_x * num_y_samples + i_y);
-            f32 zhl = *(z_data + (i_x + 1) * num_y_samples + i_y);
-            f32 zlh = *(z_data + i_x * num_y_samples + (i_y + 1));
-            f32 zhh = *(z_data + (i_x + 1)* num_y_samples + (i_y + 1));
-            // f32 zll = z_data[i_x][i_y];
-            // f32 zhl = z_data[i_x+1][i_y];
-            // f32 zlh = z_data[i_x][i_y+1];
-            // f32 zhh = z_data[i_x+1][i_y+1];
+            f32 zll = z_data[i_x * num_y_samples + i_y];
+            f32 zhl = z_data[(i_x + 1) * num_y_samples + i_y];
+            f32 zlh = z_data[i_x * num_y_samples + (i_y + 1)];
+            f32 zhh = z_data[(i_x + 1)* num_y_samples + (i_y + 1)];
 
             HMM_Vec3 bottom = (HMM_Vec3){xl, yl, zll};
             HMM_Vec3 x_mid = (HMM_Vec3){xh,yl,zhl};
@@ -490,9 +487,15 @@ void ImpDrawSurface(ImpPlot* plot, u32 num_x_samples, u32 num_y_samples, f32 *x_
             HMM_Vec3 normal_x_mid;
             HMM_Vec3 normal_y_mid;            
 
-            if (plot->flags & IMP_SURFACE_COLOR_NORMAL || plot->flags & IMP_SURFACE_COLOR_LIGHTSOURCE) {
-                normal_x_mid = HMM_NormV3(HMM_Cross(HMM_SubV3(top,x_mid), HMM_SubV3(bottom,x_mid)));
-                normal_y_mid = HMM_NormV3(HMM_Cross(HMM_SubV3(bottom,y_mid), HMM_SubV3(top,y_mid)));
+            if (plot->flags & IMP_SURFACE_COLOR_NORMAL || plot->flags & IMP_SURFACE_COLOR_LIGHTSOURCE || plot->flags & IMP_SURFACE_COLOR_MATCAP) {
+                // For normal calculation we want to use the transformed
+                // points
+                HMM_Vec3 bottom_sc = HMM_DivV3(bottom, plot_scale);
+                HMM_Vec3 x_mid_sc = HMM_DivV3(x_mid, plot_scale);
+                HMM_Vec3 y_mid_sc = HMM_DivV3(y_mid, plot_scale);
+                HMM_Vec3 top_sc = HMM_DivV3(top, plot_scale);
+                normal_x_mid = HMM_NormV3(HMM_Cross(HMM_SubV3(top_sc,x_mid_sc), HMM_SubV3(bottom_sc,x_mid_sc)));
+                normal_y_mid = HMM_NormV3(HMM_Cross(HMM_SubV3(bottom_sc,y_mid_sc), HMM_SubV3(top_sc,y_mid_sc)));
             }
 
             if (plot->flags & IMP_SURFACE_COLOR_NORMAL) {
@@ -511,7 +514,7 @@ void ImpDrawSurface(ImpPlot* plot, u32 num_x_samples, u32 num_y_samples, f32 *x_
                 ImpDrawSimpleTri(y_mid, bottom, top, (Color){255.0*y_mid_color,255.0*y_mid_color,255.0*y_mid_color,255.0});
             }
 
-            if (plot -> flags & IMP_SURFACE_COLOR_HEIGHT) {
+            if (plot->flags & IMP_SURFACE_COLOR_HEIGHT) {
                 f32 range = max_h - min_h;
                 f32 val_bottom = 255.0*(zll - min_h)/(f32)range;
                 f32 val_x_mid = 255.0*(zhl - min_h)/(f32)range;
@@ -524,6 +527,41 @@ void ImpDrawSurface(ImpPlot* plot, u32 num_x_samples, u32 num_y_samples, f32 *x_
                 Color col_top = (Color)    {val_top,    0.3*val_top+50,    0.4*val_top+100, 255};
                 ImpDrawColoredTri(bottom, x_mid, top, col_bottom, col_x_mid, col_top);
                 ImpDrawColoredTri(y_mid, bottom, top, col_y_mid, col_bottom, col_top);
+            }
+
+            if (plot->flags & IMP_SURFACE_COLOR_MATCAP) {
+                
+                normal_x_mid = HMM_NormV3(HMM_Cross(HMM_SubV3(top,x_mid), HMM_SubV3(bottom,x_mid)));
+                normal_y_mid = HMM_NormV3(HMM_Cross(HMM_SubV3(bottom,y_mid), HMM_SubV3(top,y_mid)));
+
+                f32 normal_x_r = HMM_DotV3(normal_x_mid, plot->billboard.r);
+                f32 normal_x_u = HMM_DotV3(normal_x_mid, plot->billboard.u);
+
+                f32 normal_y_r = HMM_DotV3(normal_x_mid, plot->billboard.r);
+                f32 normal_y_u = HMM_DotV3(normal_x_mid, plot->billboard.u);
+
+                f32 image_height_2 = 0.98 * matcap->height/2.0;
+                HMM_Vec2 normal_x_2d = HMM_MulV2F((HMM_Vec2){.X = normal_x_r, .Y = normal_x_u}, image_height_2);
+                HMM_Vec2 normal_y_2d = HMM_MulV2F((HMM_Vec2){.X = normal_y_r, .Y = normal_y_u}, image_height_2);
+
+
+                HMM_Vec2 normal_x_pixel = HMM_AddV2(normal_x_2d, (HMM_Vec2){.X = image_height_2, .Y = image_height_2});
+                HMM_Vec2 normal_y_pixel = HMM_AddV2(normal_y_2d, (HMM_Vec2){.X = image_height_2, .Y = image_height_2});
+
+
+                s32 pixel_x_col = floor(normal_x_pixel.X);
+                s32 pixel_x_row = floor(normal_x_pixel.Y);
+
+                // printf("pixel_x, %d", pixel_x_col);
+                // printf("pixel_y, %d", pixel_x_row);
+                s32 pixel_y_col = floor(normal_y_pixel.X);
+                s32 pixel_y_row = floor(normal_y_pixel.Y);
+
+                Color color_x_mid = GetImageColor(*matcap, pixel_x_col, pixel_x_row);
+                Color color_y_mid = GetImageColor(*matcap, pixel_y_col, pixel_y_row);
+                
+                ImpDrawSimpleTri(bottom, x_mid, top, color_x_mid);
+                ImpDrawSimpleTri(y_mid, bottom, top, color_y_mid);
             }
         }
     }
@@ -546,11 +584,14 @@ int main(void)
     f32 range = 2*PI;
 
     ImpPlot Plot = {
-        .flags = IMP_PRESET_3D | IMP_SURFACE_COLOR_HEIGHT,// | IMP_CAMERA_PERSPECTIVE,
+        // .flags = IMP_PRESET_3D | IMP_SURFACE_COLOR_MATCAP,// | IMP_CAMERA_PERSPECTIVE,
+        .flags = IMP_PRESET_3D | IMP_SURFACE_COLOR_NORMAL,// | IMP_CAMERA_PERSPECTIVE,
         .view_pos = {-1, -1, +1},
         .view_radius = {+1, +1, +1},
-        .plot_min = {-scale*range, -scale*range, -5},
-        .plot_max = {+scale*range, +scale*range, +5},
+        // .plot_min = {-scale*range, -scale*range, -5},
+        // .plot_max = {+scale*range, +scale*range, +5},
+        .plot_min = {-1000, -1000,-5},
+        .plot_max = {1000,1000, +5},
         /* .flags = IMP_PRESET_2D, // | IMP_CAMERA_PERSPECTIVE, */
         /* .view_pos = {0, 0, 1}, */
         .zoom = 1,
@@ -575,6 +616,37 @@ int main(void)
     SetTargetFPS(60);
     /* DisableCursor(); */
 
+    const u32 matcap_num = 25;
+    char matcaps[25][50] = {"matcaps/basic_1.png", 
+                           "matcaps/basic_2.png",
+                           "matcaps/basic_dark.png",
+                           "matcaps/basic_side.png",
+                           "matcaps/ceramic_dark.png",
+                           "matcaps/ceramic_lightbulb.png",
+                           "matcaps/check_normal+y.png",
+                           "matcaps/check_rim_dark.png",
+                           "matcaps/check_rim_light.png",
+                           "matcaps/clay_brown.png",
+                           "matcaps/clay_muddy.png",
+                           "matcaps/clay_studio.png",
+                           "matcaps/jade.png",
+                           "matcaps/matcap2.png",
+                           "matcaps/matcap.png",
+                           "matcaps/metal_anisotropic.png",
+                           "matcaps/metal_carpaint.png",
+                           "matcaps/metal_lead.png",
+                           "matcaps/metal_shiny.png",
+                           "matcaps/pearl.png",
+                           "matcaps/reflection_check_horizontal.png",
+                           "matcaps/reflection_check_vertical.png",
+                           "matcaps/resin.png",
+                           "matcaps/skin.png",
+                           "matcaps/toon.png",
+                          };
+    u32 matcap_index = 0;
+    Image matcap = LoadImage(matcaps[matcap_index]);
+    Texture2D matcap_tex = LoadTextureFromImage(matcap);
+    Image height_map = LoadImage("src/height_map.png");
     { /* Load atlas - custom loading to get transparent background from 1 bytes per pixel */
         atlas = (Texture) {
             .width = ATLAS_WIDTH,
@@ -592,7 +664,6 @@ int main(void)
         };
 
         Image fileimg = LoadImage("src/atlas.png");
-
 
         ExportImage(fileimg, "src/atlas.png");
         ExportImageAsCode(fileimg, "src/atlas.h");
@@ -659,6 +730,17 @@ int main(void)
     }
 
     while (!WindowShouldClose()) {
+        if (IsKeyPressed(KEY_RIGHT)) {
+            matcap_index = (matcap_index + 1) % matcap_num;
+            matcap = LoadImage(matcaps[matcap_index]);
+            matcap_tex = LoadTextureFromImage(matcap);
+        }
+        if (IsKeyPressed(KEY_LEFT)){
+            matcap_index = (matcap_index - 1) % matcap_num;
+            matcap = LoadImage(matcaps[matcap_index]);
+            matcap_tex = LoadTextureFromImage(matcap);
+        }
+    
         if (~Plot.flags & IMP_CAMERA_CUSTOM) { /* TODO seperate flag for controls? */
             // TODO move to init?   
             Plot.z_sensitivity = (Plot.z_sensitivity)? Plot.z_sensitivity : 0.005;
@@ -778,14 +860,18 @@ int main(void)
         // rlEnd();
 
 
-        s32 num_x_samples = 50;
-        s32 num_y_samples = 200;
+        s32 num_x_samples = 250;
+        s32 num_y_samples = 250;
         
 
-        f32 x_min = -range*scale;
-        f32 x_max = range*scale;
-        f32 y_min = -range*scale;
-        f32 y_max = range*scale;
+        // f32 x_min = -range*scale;
+        // f32 x_max = range*scale;
+        // f32 y_min = -range*scale;
+        // f32 y_max = range*scale;
+        f32 x_min = -1000;
+        f32 x_max = 1000;
+        f32 y_min = -1000;
+        f32 y_max = 1000;
         
         f32 x_values[num_x_samples];
 
@@ -798,8 +884,14 @@ int main(void)
         }
 
         f32 plot_func(f32 x, f32 y) {
-            return cos(3.0*cos(t/3.0)*x+t)*sin(sin(t)*y+3.0*t)*cos(x-t)*cos(y-5.0*t)*sin(y/3.0+t) + sin(x-t)*cos(sin(t)*y-t);
-            // return sin(sqrt(x*x*t + y*y*t));
+            Color z_color = GetImageColor(height_map, floor(x-x_min), floor(y-y_min));
+            
+            // return cos(x) + sin(y + t) + cos(x + t) + cos(-y +t);
+            // return cos(3.0*cos(t/3.0)*x+t)*sin(sin(t)*y+3.0*t)*cos(x-t)*cos(y-5.0*t)*sin(y/3.0+t) + sin(x-t)*cos(sin(t)*y-t);
+            // return cos(x)+sin(y) + sin(sqrt(x*x*t/2.0 + y*y*t/2.0));
+            // return sqrt(80 + -x*x - y*y);
+            f32 z = z_color.r/255.0 *0.2;
+            return -1.*cos(x/1000. + t + 20.*z) - 1.0*sin(y/500. + t + 20.*z);
         }
         
         rlEnableDepthTest();
@@ -813,13 +905,14 @@ int main(void)
             }
         }
 
-        ImpDrawSurface(&Plot, num_x_samples, num_y_samples, x_values, y_values, z_values[0]);
+        ImpDrawSurface(&Plot, &matcap, plot_scale, num_x_samples, num_y_samples, x_values, y_values, z_values[0]);
 
         // printf("Num points: %d\n", num_x_samples*num_y_samples);
         t += GetFrameTime();
         rlPopMatrix();
         EndMode3D();
         DrawTexture(atlas, 0, 0, RED);
+        DrawTextureEx(matcap_tex, (Vector2){.x = 0.0, .y = 690.0}, 0.0, 100.0/matcap.height,  WHITE);
         EndDrawing();
     }
     
