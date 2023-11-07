@@ -135,7 +135,7 @@ enum {
     IMP_TEXT_ALIGN_TOP    = 2,
 };
 
-void printMat(s32 rows, s32 cols, s32 mat[rows][cols]){
+void printMat(s32 rows, s32 cols, s32 **mat){
     // Print Matrix
     for (s32 i_y = 0; i_y < cols; i_y++) {
         for (s32 i_x = 0; i_x < rows; i_x++) {
@@ -572,6 +572,27 @@ void imp_update_plot_controls(Context *imp, ImpPlot *plot) {
     /* TODO move update code in here and get controls from imp context */
 }
 
+#define num_x_samples 300
+#define num_y_samples 300
+/* #define x_min -1000 */
+/* #define x_max 1000 */
+/* #define y_min -1000 */
+/* #define y_max 1000 */
+#define x_min (-2*PI)
+#define x_max (+2*PI)
+#define y_min (-2*PI)
+#define y_max (+2*PI)
+f32 plot_func(Image height_map, f32 x, f32 y, f32 t) {
+    Color z_color = GetImageColor(height_map, floor(x-x_min), floor(y-y_min));
+            
+    /* return cos(x) + sin(y + t) + cos(x + t) + cos(-y +t); */
+    /* return cos(3.0*cos(t/3.0)*x+t)*sin(sin(t)*y+3.0*t)*cos(x-t)*cos(y-5.0*t)*sin(y/3.0+t) + sin(x-t)*cos(sin(t)*y-t); */
+    return cos(x)+sin(y) + sin(sqrt(x*x*t/2.0 + y*y*t/2.0));
+    /* return sqrt(80 + -x*x - y*y); */
+    f32 z = z_color.r/255.0 *0.2;
+    return -1.*cos(x/1000. + t + 20.*z) - 1.0*sin(y/500. + t + 20.*z);
+}
+
 int main(void)
 {
     const int screenWidth = 800;
@@ -584,14 +605,13 @@ int main(void)
     f32 range = 2*PI;
 
     ImpPlot Plot = {
-        // .flags = IMP_PRESET_3D | IMP_SURFACE_COLOR_MATCAP,// | IMP_CAMERA_PERSPECTIVE,
-        .flags = IMP_PRESET_3D | IMP_SURFACE_COLOR_NORMAL,// | IMP_CAMERA_PERSPECTIVE,
+        .flags = IMP_PRESET_3D | IMP_SURFACE_COLOR_MATCAP,// | IMP_CAMERA_PERSPECTIVE,
+        /* .flags = IMP_PRESET_3D | IMP_SURFACE_COLOR_NORMAL,// | IMP_CAMERA_PERSPECTIVE, */
+        /* .flags = IMP_PRESET_3D | IMP_SURFACE_COLOR_HEIGHT,// | IMP_CAMERA_PERSPECTIVE, */
         .view_pos = {-1, -1, +1},
         .view_radius = {+1, +1, +1},
-        // .plot_min = {-scale*range, -scale*range, -5},
-        // .plot_max = {+scale*range, +scale*range, +5},
-        .plot_min = {-1000, -1000,-5},
-        .plot_max = {1000,1000, +5},
+        .plot_min = {x_min, y_min,-5},
+        .plot_max = {x_max, y_max, +5},
         /* .flags = IMP_PRESET_2D, // | IMP_CAMERA_PERSPECTIVE, */
         /* .view_pos = {0, 0, 1}, */
         .zoom = 1,
@@ -858,20 +878,6 @@ int main(void)
         //     /* ImpDrawTexQuadFromAtlas(p, rect, color); */
         // }
         // rlEnd();
-
-
-        s32 num_x_samples = 250;
-        s32 num_y_samples = 250;
-        
-
-        // f32 x_min = -range*scale;
-        // f32 x_max = range*scale;
-        // f32 y_min = -range*scale;
-        // f32 y_max = range*scale;
-        f32 x_min = -1000;
-        f32 x_max = 1000;
-        f32 y_min = -1000;
-        f32 y_max = 1000;
         
         f32 x_values[num_x_samples];
 
@@ -883,16 +889,7 @@ int main(void)
             y_values[i] = y_min + (y_max - y_min)*((f32)i/(num_y_samples-1));
         }
 
-        f32 plot_func(f32 x, f32 y) {
-            Color z_color = GetImageColor(height_map, floor(x-x_min), floor(y-y_min));
-            
-            // return cos(x) + sin(y + t) + cos(x + t) + cos(-y +t);
-            // return cos(3.0*cos(t/3.0)*x+t)*sin(sin(t)*y+3.0*t)*cos(x-t)*cos(y-5.0*t)*sin(y/3.0+t) + sin(x-t)*cos(sin(t)*y-t);
-            // return cos(x)+sin(y) + sin(sqrt(x*x*t/2.0 + y*y*t/2.0));
-            // return sqrt(80 + -x*x - y*y);
-            f32 z = z_color.r/255.0 *0.2;
-            return -1.*cos(x/1000. + t + 20.*z) - 1.0*sin(y/500. + t + 20.*z);
-        }
+        
         
         rlEnableDepthTest();
 
@@ -901,7 +898,7 @@ int main(void)
             for (s32 i_y = 0; i_y < num_y_samples; i_y++) {
                 f32 xl = x_values[i_x];
                 f32 yl = y_values[i_y];
-                z_values[i_x][i_y] = plot_func(xl, yl);
+                z_values[i_x][i_y] = plot_func(height_map, xl, yl, t);
             }
         }
 
