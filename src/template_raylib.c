@@ -42,7 +42,7 @@ extern void glTexParameteriv(int, int, const int*);
 extern void glTexParameteri(int, int, int);
 
 enum { ATLAS_WHITE = MU_ICON_MAX, ATLAS_FONT };
-enum { ATLAS_WIDTH = 128, ATLAS_HEIGHT = 128 };
+enum { ATLAS_WIDTH = 256, ATLAS_HEIGHT = 256 };
 
 extern unsigned char atlas_data[ATLAS_WIDTH * ATLAS_HEIGHT];
 extern Rectangle atlas_rect[256];
@@ -133,9 +133,12 @@ typedef struct ImpPlot {
     HMM_Vec3 drag_min;
     HMM_Vec3 drag_max;
     
-
     f32 text_size;
     f32 line_size;
+
+    f32 line_size_f;
+    f32 text_size_f;
+    
     HMM_Vec3 text_percent_offset;
     f32 grid_margin;
 } ImpPlot;
@@ -173,22 +176,25 @@ static inline void ImpDrawTexQuadFromAtlas(ImpDrawPlane p, Rectangle tex, Color 
 }
 
 void ImpDrawLine(ImpPlot *plot, HMM_Vec3 start, HMM_Vec3 end, Color color, float thickness) {
+    f32 size = plot->line_size_f*thickness;
+
     ImpDrawPlane p;
     HMM_Vec3 dir = HMM_SubV3(end, start);
     HMM_Vec3 udir = HMM_NormV3(dir);
 
     HMM_Vec3 to_camera;
-    if (plot->flags & IMP_CAMERA_PERSPECTIVE) {
-        to_camera = (HMM_SubV3(start, plot->camera_pos));
-    } else {
+    /* if (plot->flags & IMP_CAMERA_PERSPECTIVE) { */
+        /* to_camera = (HMM_SubV3(start, plot->camera_pos)); */
+    /* } else { */
         /* for orthographic mode the camera vector should be constant (no projection) */
         to_camera = plot->billboard_z;
-    }
+    /* } */
     /* get direction orthogonal to line direction for maximum projected area. */
     to_camera = HMM_NormV3(HMM_SubV3(to_camera, HMM_MulV3F(udir, HMM_DotV3(udir, to_camera))));
-    HMM_Vec3 width_dir = HMM_Cross(udir, to_camera);
+    HMM_Vec3 width_dir = HMM_NormV3(HMM_Cross(udir, to_camera));
+    /* color.r = 255.0*width_dir.X; color.g = 255.0*width_dir.Y; color.b = 255.0*width_dir.Z; */
 
-    width_dir = HMM_MulV3F(width_dir, thickness);
+    width_dir = HMM_MulV3F(width_dir, size);
     p.bl = HMM_SubV3(start, HMM_MulV3F(width_dir, 0.5));
     p.r = dir;
     p.u = width_dir;
@@ -200,6 +206,7 @@ void ImpDrawGridLines(ImpPlot *plot, HMM_Vec3 start, HMM_Vec3 end, HMM_Vec3 swee
     HMM_Vec3 step = HMM_DivV3F(sweep, n-1);
     ImpDrawPlane p;
     HMM_Vec3 dir = HMM_SubV3(end, start);
+
 
     Rectangle r = atlas_rect[IMP_LINE_TEXTURE];
     for (s32 i = 0; i < n; i++) {
@@ -219,12 +226,13 @@ static HMM_Vec2 ImpMeasureText(str text) {
         
         Rectangle r = atlas_rect[ATLAS_FONT + text.str[i]];
         out.Y = MAX(r.height, out.Y);
-        out.X += r.width;
+        out.X += r.width + 1.0;
     }
     return out;
 }
 
-static ImpDrawPlane ImpAlignText(ImpDrawPlane plane, HMM_Vec2 size, float scale, int align_h, int align_v) {
+static ImpDrawPlane ImpAlignText(ImpPlot *plot, ImpDrawPlane plane, HMM_Vec2 size, float scale, int align_h, int align_v) {
+    scale *= plot->text_size_f;
     f32 f;
     switch (align_h) {
     case IMP_TEXT_ALIGN_LEFT  : {f = scale;         } break;
@@ -243,9 +251,10 @@ static ImpDrawPlane ImpAlignText(ImpDrawPlane plane, HMM_Vec2 size, float scale,
     return plane;
 }
 
-static void ImpDrawText3D(ImpDrawPlane plane, str text, Color color, f32 size) {
-    plane.r = HMM_MulV3F(plane.r, size);
-    plane.u = HMM_MulV3F(plane.u, size);
+static void ImpDrawText3D(ImpPlot *plot, ImpDrawPlane plane, str text, Color color, f32 scale) {
+    scale *= plot->text_size_f;
+    plane.r = HMM_MulV3F(plane.r, scale);
+    plane.u = HMM_MulV3F(plane.u, scale);
     for (s32 i = 0; i < text.len; i++) {
         Rectangle r = atlas_rect[ATLAS_FONT + text.str[i]];
         ImpDrawPlane p = plane;
@@ -266,18 +275,17 @@ void ImpDrawPlot(ImpPlot* plot, HMM_Vec3 camera_pos) {
     HMM_Vec3 center = {0,0,0};
     HMM_Vec3 min = HMM_MulV3F(plot->view_radius, -1);
     HMM_Vec3 max = HMM_MulV3F(plot->view_radius, +1);
-    f32 text_size = plot->text_size;
-    text_size *= (plot->zoom);
 
-    f32 line_size = text_size*plot->line_size;
-    
-    f32 num_text_size = text_size*0.66;
+    plot->text_size_f = plot->text_size*plot->zoom;
+    plot->line_size_f = plot->text_size_f*plot->line_size;
+
+    f32 num_text_size = 0.66;
     HMM_Vec3 num_percent_offset;
     num_percent_offset.X = 1 + 0.5*plot->text_percent_offset.X*plot->zoom;
     num_percent_offset.Y = 1 + 0.5*plot->text_percent_offset.Y*plot->zoom;
     num_percent_offset.Z = 1 + 0.5*plot->text_percent_offset.Z*plot->zoom;
 
-    f32 label_text_size = text_size;
+    f32 label_text_size = 1;
     HMM_Vec3 label_percent_offset;
     label_percent_offset.X = 1 + plot->text_percent_offset.X*plot->zoom;
     label_percent_offset.Y = 1 + plot->text_percent_offset.Y*plot->zoom;
@@ -286,7 +294,7 @@ void ImpDrawPlot(ImpPlot* plot, HMM_Vec3 camera_pos) {
     color = BLACK;
 #define COLOR_AXES BLACK
 #define COLOR_GRID_LINE LIGHTGRAY
-#define N_GRID_LINES 11
+#define N_GRID_LINES 6
 
     if (plot->flags & IMP_GRID_XY) {
         Color c = COLOR_GRID_LINE;
@@ -295,15 +303,15 @@ void ImpDrawPlot(ImpPlot* plot, HMM_Vec3 camera_pos) {
         if (camera_pos.Z > center.Z) {
             /* Bottom */
             ImpDrawGridLines(plot, HMM_V3(min.X, margin.Y, min.Z), HMM_V3(min.X, margax.Y, min.Z),
-                             HMM_V3(max.X-min.X, 0, 0), c, N_GRID_LINES, line_size);
+                             HMM_V3(max.X-min.X, 0, 0), c, N_GRID_LINES, 1);
             ImpDrawGridLines(plot, HMM_V3(margin.X, min.Y, min.Z), HMM_V3(margax.X, min.Y, min.Z),
-                             HMM_V3(0, max.Y-min.Y, 0), c, N_GRID_LINES, line_size);
+                             HMM_V3(0, max.Y-min.Y, 0), c, N_GRID_LINES, 1);
         } else {
             /* Top */
             ImpDrawGridLines(plot, HMM_V3(max.X, margax.Y, max.Z), HMM_V3(max.X, margin.Y, max.Z),
-                             HMM_V3(min.X-max.X, 0, 0), c, N_GRID_LINES, line_size);
+                             HMM_V3(min.X-max.X, 0, 0), c, N_GRID_LINES, 1);
             ImpDrawGridLines(plot, HMM_V3(margax.X, max.Y, max.Z), HMM_V3(margin.X, max.Y, max.Z),
-                             HMM_V3(0, min.Y-max.Y, 0), c, N_GRID_LINES, line_size);
+                             HMM_V3(0, min.Y-max.Y, 0), c, N_GRID_LINES, 1);
         }
     }
 
@@ -314,16 +322,16 @@ void ImpDrawPlot(ImpPlot* plot, HMM_Vec3 camera_pos) {
         if (camera_pos.Y > center.Y) {
             /* Right */
             ImpDrawGridLines(plot, HMM_V3(min.X, min.Y, margin.Z), HMM_V3(min.X, min.Y, margax.Z),
-                             HMM_V3(max.X-min.X, 0, 0), c, N_GRID_LINES, line_size);
+                             HMM_V3(max.X-min.X, 0, 0), c, N_GRID_LINES, 1);
             ImpDrawGridLines(plot, HMM_V3(margin.X, min.Y, min.Z), HMM_V3(margax.X, min.Y, min.Z),
-                             HMM_V3(0, 0, max.Z-min.Z), c, N_GRID_LINES, line_size);
+                             HMM_V3(0, 0, max.Z-min.Z), c, N_GRID_LINES, 1);
 
         } else {
             /* Left */
             ImpDrawGridLines(plot, HMM_V3(max.X, max.Y, margax.Z), HMM_V3(max.X, max.Y, margin.Z),
-                             HMM_V3(min.X-max.X, 0, 0), c, N_GRID_LINES, line_size);
+                             HMM_V3(min.X-max.X, 0, 0), c, N_GRID_LINES, 1);
             ImpDrawGridLines(plot, HMM_V3(margax.X, max.Y, max.Z), HMM_V3(margin.X, max.Y, max.Z),
-                             HMM_V3(0, 0, min.Z-max.Z), c, N_GRID_LINES, line_size);
+                             HMM_V3(0, 0, min.Z-max.Z), c, N_GRID_LINES, 1);
         }
     }
 
@@ -334,15 +342,15 @@ void ImpDrawPlot(ImpPlot* plot, HMM_Vec3 camera_pos) {
         if (camera_pos.X > center.X) {
             /* Near */
             ImpDrawGridLines(plot, HMM_V3(min.X, min.Y, margin.Z), HMM_V3(min.X, min.Y, margax.Z),
-                             HMM_V3(0, max.Y-min.Y, 0), c, N_GRID_LINES, line_size);
+                             HMM_V3(0, max.Y-min.Y, 0), c, N_GRID_LINES, 1);
             ImpDrawGridLines(plot, HMM_V3(min.X, margin.Y, min.Z), HMM_V3(min.X, margax.Y, min.Z),
-                             HMM_V3(0, 0, max.Z-min.Z), c, N_GRID_LINES, line_size);
+                             HMM_V3(0, 0, max.Z-min.Z), c, N_GRID_LINES, 1);
         } else {
             /* Far */
             ImpDrawGridLines(plot, HMM_V3(max.X, max.Y, margax.Z), HMM_V3(max.X, max.Y, margin.Z),
-                             HMM_V3(0, min.Y-max.Y, 0), c, N_GRID_LINES, line_size);
+                             HMM_V3(0, min.Y-max.Y, 0), c, N_GRID_LINES, 1);
             ImpDrawGridLines(plot, HMM_V3(max.X, margax.Y, max.Z), HMM_V3(max.X, margin.Y, max.Z),
-                             HMM_V3(0, 0, min.Z-max.Z), c, N_GRID_LINES, line_size);
+                             HMM_V3(0, 0, min.Z-max.Z), c, N_GRID_LINES, 1);
         }
     }
 
@@ -363,26 +371,25 @@ void ImpDrawPlot(ImpPlot* plot, HMM_Vec3 camera_pos) {
         HMM_Vec3 lclosest = closest; lclosest.X = margin.X;
         HMM_Vec3 lend = end; lend.X = margax.X;
 
-        ImpDrawLine(plot, lclosest, lend, c, line_size);
+        ImpDrawLine(plot, lclosest, lend, c, 1);
         
         for (s32 i = 0; i < N_GRID_LINES; i++) {
             f32 x = (f64)i/(f64)(N_GRID_LINES-1);
             ImpDrawPlane p = plot->billboard;
             p.bl = HMM_MulV3F(closest, num_percent_offset.X);
             p.bl.X = HMM_Lerp(closest.X, x, end.X);
-            str s = strf(imp, "%.5g", HMM_Lerp(plot->plot_min.X, x, plot->plot_max.X));
-            p = ImpAlignText(p, ImpMeasureText(s), num_text_size, align_h, align_v);
-            ImpDrawText3D(p, s, c, num_text_size);
+            str s = strf(imp, "%0.3g", HMM_Lerp(plot->plot_min.X, x, plot->plot_max.X));
+            p = ImpAlignText(plot, p, ImpMeasureText(s), num_text_size, align_h, align_v);
+            ImpDrawText3D(plot, p, s, c, num_text_size);
         }
 
         c = (Color){.r=0xdf, .g=color.g, .b=color.b, .a=color.a};
         ImpDrawPlane p = plot->billboard;
         p.bl = HMM_MulV3F(closest, label_percent_offset.X);
-        /* p.bl.X = HMM_Lerp(closest.X, (camera_pos.X > center.X)? 0.1 : 0.9, end.X); */
         p.bl.X = (camera_pos.X > center.X)? min.X - plot->view_radius.X*0.1*plot->zoom  : max.X + plot->view_radius.X*0.1*plot->zoom ;
         str s = plot->xlabel.str? plot->xlabel : imp_str("X");
-        p = ImpAlignText(p, ImpMeasureText(s), plot->text_size, align_h, align_v);
-        ImpDrawText3D(p, s, c, text_size);
+        p = ImpAlignText(plot, p, ImpMeasureText(s), plot->text_size, align_h, align_v);
+        ImpDrawText3D(plot, p, s, c, 1);
     }
     
     if (plot->flags & IMP_AXIS_Y) {
@@ -402,27 +409,25 @@ void ImpDrawPlot(ImpPlot* plot, HMM_Vec3 camera_pos) {
         HMM_Vec3 lclosest = closest; lclosest.Y = margin.Y;
         HMM_Vec3 lend = end; lend.Y = margax.Y;
 
-        ImpDrawLine(plot, lclosest, lend, c, line_size);
+        ImpDrawLine(plot, lclosest, lend, c, 1);
 
         for (s32 i = 0; i < N_GRID_LINES; i++) {
             f32 y = (f64)i/(f64)(N_GRID_LINES-1);
             ImpDrawPlane p = plot->billboard;
             p.bl = HMM_MulV3F(closest, num_percent_offset.Y);
             p.bl.Y = HMM_Lerp(closest.Y, y, end.Y);
-            str s = strf(imp, "%.5g", HMM_Lerp(plot->plot_min.Y, y, plot->plot_max.Y));
-            p = ImpAlignText(p, ImpMeasureText(s), num_text_size, align_h, align_v);
-            ImpDrawText3D(p, s, c, num_text_size);
+            str s = strf(imp, "%0.3g", HMM_Lerp(plot->plot_min.Y, y, plot->plot_max.Y));
+            p = ImpAlignText(plot, p, ImpMeasureText(s), num_text_size, align_h, align_v);
+            ImpDrawText3D(plot, p, s, c, num_text_size);
         }
 
         c = (Color){.r=color.r, .g=0xdf, .b=color.b, .a=color.a};
         ImpDrawPlane p = plot->billboard;
         p.bl = HMM_MulV3F(closest, label_percent_offset.Y);
-        /* p.bl.Y = HMM_Lerp(closest.Y, (camera_pos.Y > center.Y)? 0.1 : 0.9, end.Y); */
-        /* p.bl = closest; */
         p.bl.Y = (camera_pos.Y > center.Y)? min.Y - plot->view_radius.Y*0.1*plot->zoom  : max.Y + plot->view_radius.Y*0.1*plot->zoom ;
         str s = plot->ylabel.str? plot->ylabel : imp_str("Y");
-        p = ImpAlignText(p, ImpMeasureText(s), plot->text_size, align_h, align_v);
-        ImpDrawText3D(p, s, c, text_size);
+        p = ImpAlignText(plot, p, ImpMeasureText(s), plot->text_size, align_h, align_v);
+        ImpDrawText3D(plot, p, s, c, 1);
     }
 
     if (plot->flags & IMP_AXIS_Z) {
@@ -444,16 +449,16 @@ void ImpDrawPlot(ImpPlot* plot, HMM_Vec3 camera_pos) {
         HMM_Vec3 lclosest = closest; lclosest.Z = margin.Z;
         HMM_Vec3 lend = end; lend.Z = margax.Z;
         
-        ImpDrawLine(plot, lclosest, lend, c, line_size);
+        ImpDrawLine(plot, lclosest, lend, c, 1);
         
         for (s32 i = 0; i < N_GRID_LINES; i++) {
             f32 z = (f64)i/(f64)(N_GRID_LINES-1);
             ImpDrawPlane p = plot->billboard;
             p.bl = HMM_MulV3F(closest, num_percent_offset.Z);
             p.bl.Z = HMM_Lerp(closest.Z, z, end.Z);
-            str s = strf(imp, "%.5g", HMM_Lerp(plot->plot_min.Z, z, plot->plot_max.Z));
-            p = ImpAlignText(p, ImpMeasureText(s), num_text_size, align_h, align_v);
-            ImpDrawText3D(p, s, c, num_text_size);
+            str s = strf(imp, "%0.3g", HMM_Lerp(plot->plot_min.Z, z, plot->plot_max.Z));
+            p = ImpAlignText(plot, p, ImpMeasureText(s), num_text_size, align_h, align_v);
+            ImpDrawText3D(plot, p, s, c, num_text_size);
         }
 
         c = (Color){.r=color.r, .g=color.g, .b=0xdf, .a=color.a};
@@ -462,8 +467,8 @@ void ImpDrawPlot(ImpPlot* plot, HMM_Vec3 camera_pos) {
         p.bl.Z = (camera_pos.Z < center.Z)? min.Z - plot->view_radius.Z*0.1*plot->zoom : max.Z + plot->view_radius.Z*0.1*plot->zoom ;
         align_h = IMP_TEXT_ALIGN_CENTER;
         str s = plot->zlabel.str? plot->zlabel : imp_str("Z");
-        p = ImpAlignText(p, ImpMeasureText(s), plot->text_size, align_h, align_v);
-        ImpDrawText3D(p, s, c, text_size);
+        p = ImpAlignText(plot, p, ImpMeasureText(s), plot->text_size, align_h, align_v);
+        ImpDrawText3D(plot, p, s, c, 1);
     }
 }
 
@@ -480,17 +485,17 @@ int main(void)
     imp_init(imp, 0, 0, 0);
 
     ImpPlot Plot = {
-        /* .flags = IMP_PRESET_3D, */
+        .flags = IMP_PRESET_3D,
         .view_pos = {-1, -1, +1},
         .view_radius = {+1, +1, +1},
         .plot_min = {0, 0, 0},
         .plot_max = {+5, +5, +5},
-        .flags = IMP_PRESET_2D,
+        /* .flags = IMP_PRESET_2D, */
         .zoom = 1,
         .fov = 75,
         .grid_margin = 0.05,
 
-        .xlabel = imp_str("ABCDEFGHIJKLMNOPQRSTUVWXYZ"),
+        .xlabel = imp_str("dev_dwarf!"),
     };
 
     f32 max_radius = HMM_MAX(Plot.view_radius.X, HMM_MAX(Plot.view_radius.Y, Plot.view_radius.Z));
@@ -502,7 +507,7 @@ int main(void)
         0.5*len_radius/(3*3*Plot.view_radius.X*Plot.view_radius.Y),
     };
 
-    f32 text_scale = 15;
+    f32 text_scale = 5.0;
     Plot.text_size = HMM_SqrtF(text_scale*0.000001)*len_radius;
     Plot.text_percent_offset = bivec_radius;
     Plot.view_pos = HMM_MulV3F(Plot.view_pos, HMM_SqrtF(max_radius/2));
@@ -529,6 +534,7 @@ int main(void)
         };
 
         Image fileimg = LoadImage("src/atlas.png");
+        ImageFormat(&fileimg, PIXELFORMAT_UNCOMPRESSED_GRAYSCALE);
 
         ExportImage(fileimg, "src/atlas.png");
         ExportImageAsCode(fileimg, "src/atlas.h");
@@ -576,7 +582,7 @@ int main(void)
     f32 drag_z = 0;
     f32 drag_start_y = 0;
 
-    s32 points = 1 << 12;
+    s32 points = 1 << 10;
     f32 t = 0;
     HMM_Vec3 *point = malloc(sizeof(HMM_Vec3)*(1 << 17));
     HMM_Vec3 *point2 = malloc(sizeof(HMM_Vec3)*(1 << 17));
@@ -701,8 +707,7 @@ int main(void)
         Plot.billboard_z = HMM_NormV3(HMM_Cross(billboard_u, billboard_r));
         Plot.camera_pos = rot_pos;
 
-
-        Plot.line_size = 1;// + cos(t);
+        Plot.line_size = 1.5;// + cos(t);
         ImpDrawPlot(&Plot, rot_pos);
 
         HMM_Vec3 plot_center = HMM_MulV3F(HMM_LerpV3(Plot.plot_min, 0.5, Plot.plot_max), -1);
@@ -711,9 +716,6 @@ int main(void)
         rlScalef(1/plot_scale.X, 1/plot_scale.Y, 1/plot_scale.Z);
         rlTranslatef(plot_center.X, plot_center.Y, plot_center.Z);
         
-        rlSetLineWidth(2);
-        rlEnableDepthTest();
-
         Color color = RED;
 
         ImpDrawPlane plane = Plot.billboard;
@@ -721,19 +723,29 @@ int main(void)
         plane.r = HMM_MulV3(HMM_MulV3F(plane.r, 0.50*Plot.text_size*rect.width *(Plot.zoom)), plot_scale);
         plane.u = HMM_MulV3(HMM_MulV3F(plane.u, 0.50*Plot.text_size*rect.height*(Plot.zoom)), plot_scale);
 
-        rlBegin(RL_LINES);
+        rlBegin(RL_QUADS);
         for (s32 i = 0; i < points; i++) {
-            f32 r = 6.14 * (f32) i / (f32) points;
+            f32 r = 6.283185307 * (f32) i / (f32) (points-1);
             point2[i] = HMM_V3(
-                2.5*(1+cos(r*90)*sin(r*60+t)),
-                2.5*(1+sin(r*90)*cos(r*60+t)),
-                2.5*(1+sin(30*r)*cos(r*5.+t))
+                /* 2.5*(1+cos(r*90)*sin(r*60+t)), */
+                /* 2.5*(1+sin(r*90)*cos(r*60+t)), */
+                /* 2.5*(1+sin(30*r)*cos(r*5.+t)) */
+                2.5+cos(0.5*t+r),
+                2.5+sin(t+r)+cos(2*r+t),
+                2.5+sin(t+r)*cos(2*(r+t))
                 );
+
+            /* if ((i & 7) == 0) { */
+                /* point2[i] = HMM_V3( */
+                /* 2.5+cos(t+r), */
+                /* 2.5+sin(2*t+r)+cos(2*r+t), */
+                /* 2.5+sin(t+r)*cos(2*(r+t)) */
+                /* ); */
+            /* } */
         }
         for (s32 i = 0; i < points-1; i++) {
-            rlColor4ub(color.r, color.g, color.b, color.a);
-            rlVertex3f(point2[i].X, point2[i].Y, point2[i].Z);
-            rlVertex3f(point2[i+1].X, point2[i+1].Y, point2[i+1].Z);
+            ImpDrawLine(&Plot, point2[i], point2[i+1], color, 4.0);
+            
             /* Rectangle rect = atlas_rect[IMP_MARKER_CIRCLE + (i % IMP_MARKER_COUNT)]; */
             /* ImpDrawPlane p = plane; */
             /* p.bl = point2[i]; */
@@ -750,14 +762,8 @@ int main(void)
         EndMode3D();
 
 
-
+        DrawFPS(8, 8);
         DrawTexture(atlas, 0, 0, RED);
-        /* for (s32 i = 0; i < 256; i++) { */
-            /* DrawRectangleLinesEx(atlas_rect[i], 0.5, BLUE); */
-        /* } */
-
-        
-        /* printf("%f, %f, %f\n", view_pos.X, view_pos.Y, view_pos.Z); */
         
         EndDrawing();
     }
@@ -789,104 +795,104 @@ Rectangle atlas_rect[256] = {
     [ IMP_MARKER_DIAMOND_OUTLINE ] = { 80, 128-16, 16, 16},
     [ IMP_MARKER_HEART_OUTLINE ] = { 96, 128-16, 16, 16},
     [ IMP_MARKER_ARROW_OUTLINE ] = { 112, 128-16, 16, 16},
-    [ IMP_LINE_TEXTURE ] = { 1, 80, 2, 16},
+    [ IMP_LINE_TEXTURE ] = { 1, 225, 30, 30},
         
     [ ATLAS_WHITE ] = { 125, 68, 3, 3 },
-    [ ATLAS_FONT+32 ] = { 112, 80, 3, 17 },
-    [ ATLAS_FONT+33 ] = { 39, 68, 3, 17 },
-    [ ATLAS_FONT+34 ] = { 114, 51, 5, 17 },
-    [ ATLAS_FONT+35 ] = { 34, 17, 7, 17 },
-    [ ATLAS_FONT+36 ] = { 28, 34, 6, 17 },
-    [ ATLAS_FONT+37 ] = { 58, 0, 9, 17 },
-    [ ATLAS_FONT+38 ] = { 103, 0, 8, 17 },
-    [ ATLAS_FONT+39 ] = { 88, 68, 2, 17 },
-    [ ATLAS_FONT+40 ] = { 42, 68, 3, 17 },
-    [ ATLAS_FONT+41 ] = { 45, 68, 3, 17 },
-    [ ATLAS_FONT+42 ] = { 34, 34, 6, 17 },
-    [ ATLAS_FONT+43 ] = { 40, 34, 6, 17 },
-    [ ATLAS_FONT+44 ] = { 48, 68, 3, 17 },
-    [ ATLAS_FONT+45 ] = { 51, 68, 3, 17 },
-    [ ATLAS_FONT+46 ] = { 54, 68, 3, 17 },
-    [ ATLAS_FONT+47 ] = { 124, 34, 4, 17 },
-    [ ATLAS_FONT+48 ] = { 46, 34, 6, 17 },
-    [ ATLAS_FONT+49 ] = { 52, 34, 6, 17 },
-    [ ATLAS_FONT+50 ] = { 58, 34, 6, 17 },
-    [ ATLAS_FONT+51 ] = { 64, 34, 6, 17 },
-    [ ATLAS_FONT+52 ] = { 70, 34, 6, 17 },
-    [ ATLAS_FONT+53 ] = { 76, 34, 6, 17 },
-    [ ATLAS_FONT+54 ] = { 82, 34, 6, 17 },
-    [ ATLAS_FONT+55 ] = { 88, 34, 6, 17 },
-    [ ATLAS_FONT+56 ] = { 94, 34, 6, 17 },
-    [ ATLAS_FONT+57 ] = { 100, 34, 6, 17 },
-    [ ATLAS_FONT+58 ] = { 57, 68, 3, 17 },
-    [ ATLAS_FONT+59 ] = { 60, 68, 3, 17 },
-    [ ATLAS_FONT+60 ] = { 106, 34, 6, 17 },
-    [ ATLAS_FONT+61 ] = { 112, 34, 6, 17 },
-    [ ATLAS_FONT+62 ] = { 118, 34, 6, 17 },
-    [ ATLAS_FONT+63 ] = { 119, 51, 5, 17 },
-    [ ATLAS_FONT+64 ] = { 18, 0, 10, 17 },
-    [ ATLAS_FONT+65 ] = { 41, 17, 7, 17 },
-    [ ATLAS_FONT+66 ] = { 48, 17, 7, 17 },
-    [ ATLAS_FONT+67 ] = { 55, 17, 7, 17 },
-    [ ATLAS_FONT+68 ] = { 111, 0, 8, 17 },
-    [ ATLAS_FONT+69 ] = { 0, 35, 6, 17 },
-    [ ATLAS_FONT+70 ] = { 6, 35, 6, 17 },
-    [ ATLAS_FONT+71 ] = { 119, 0, 8, 17 },
-    [ ATLAS_FONT+72 ] = { 18, 17, 8, 17 },
-    [ ATLAS_FONT+73 ] = { 63, 68, 3, 17 },
-    [ ATLAS_FONT+74 ] = { 66, 68, 3, 17 },
-    [ ATLAS_FONT+75 ] = { 62, 17, 7, 17 },
-    [ ATLAS_FONT+76 ] = { 12, 51, 6, 17 },
-    [ ATLAS_FONT+77 ] = { 28, 0, 10, 17 },
-    [ ATLAS_FONT+78 ] = { 67, 0, 9, 17 },
-    [ ATLAS_FONT+79 ] = { 76, 0, 9, 17 },
-    [ ATLAS_FONT+80 ] = { 69, 17, 7, 17 },
-    [ ATLAS_FONT+81 ] = { 85, 0, 9, 17 },
-    [ ATLAS_FONT+82 ] = { 76, 17, 7, 17 },
-    [ ATLAS_FONT+83 ] = { 18, 51, 6, 17 },
-    [ ATLAS_FONT+84 ] = { 24, 51, 6, 17 },
-    [ ATLAS_FONT+85 ] = { 26, 17, 8, 17 },
-    [ ATLAS_FONT+86 ] = { 83, 17, 7, 17 },
-    [ ATLAS_FONT+87 ] = { 38, 0, 10, 17 },
-    [ ATLAS_FONT+88 ] = { 90, 17, 7, 17 },
-    [ ATLAS_FONT+89 ] = { 30, 51, 6, 17 },
-    [ ATLAS_FONT+90 ] = { 36.5, 51, 5.5, 17 },
-    [ ATLAS_FONT+91 ] = { 69, 68, 3, 17 },
-    [ ATLAS_FONT+92 ] = { 124, 51, 4, 17 },
-    [ ATLAS_FONT+93 ] = { 72, 68, 3, 17 },
-    [ ATLAS_FONT+94 ] = { 42, 51, 6, 17 },
-    [ ATLAS_FONT+95 ] = { 15, 68, 4, 17 },
-    [ ATLAS_FONT+96 ] = { 49, 51, 4, 17 },
-    [ ATLAS_FONT+97 ] = { 52, 51, 6, 17 },
-    [ ATLAS_FONT+98 ] = { 97, 17, 6.5, 17 },
-    [ ATLAS_FONT+99 ] = { 0, 52, 4.5, 17 },
-    [ ATLAS_FONT+100 ] = { 104, 17, 6.5, 17 },
-    [ ATLAS_FONT+101 ] = { 60, 51, 5.5, 17 },
-    [ ATLAS_FONT+102 ] = { 19, 68, 4, 17 },
-    [ ATLAS_FONT+103 ] = { 66, 51, 6, 17 },
-    [ ATLAS_FONT+104 ] = { 111, 17, 7, 17 },
-    [ ATLAS_FONT+105 ] = { 76, 68, 3, 17 },
-    [ ATLAS_FONT+106 ] = { 80, 77, 3, 17 },
-    [ ATLAS_FONT+107 ] = { 112, 83, 5.5, 17 },
-    [ ATLAS_FONT+108 ] = { 83, 68, 3, 17 },
-    [ ATLAS_FONT+109 ] = { 48.5, 0, 9.5, 17 },
-    [ ATLAS_FONT+110 ] = { 118.5, 17, 6, 17 },
-    [ ATLAS_FONT+111 ] = { 0, 18, 7, 17 },
-    [ ATLAS_FONT+112 ] = { 7, 18, 6.5, 17 },
-    [ ATLAS_FONT+113 ] = { 14, 34, 7, 17 },
-    [ ATLAS_FONT+114 ] = { 24, 68, 3.5, 17 },
-    [ ATLAS_FONT+115 ] = { 5, 52, 5, 17 },
-    [ ATLAS_FONT+116 ] = { 27, 68, 4, 17 },
-    [ ATLAS_FONT+117 ] = { 21, 34, 7, 17 },
-    [ ATLAS_FONT+118 ] = { 78, 51, 6, 17 },
-    [ ATLAS_FONT+119 ] = { 94, 0, 9, 17 },
-    [ ATLAS_FONT+120 ] = { 84, 51, 6, 17 },
-    [ ATLAS_FONT+121 ] = { 90, 51, 6, 17 },
-    [ ATLAS_FONT+122 ] = { 10, 68, 5, 17 },
-    [ ATLAS_FONT+123 ] = { 31, 68, 4, 17 },
-    [ ATLAS_FONT+124 ] = { 96, 51, 6, 17 },
-    [ ATLAS_FONT+125 ] = { 35, 68, 4, 17 },
-    [ ATLAS_FONT+126 ] = { 102, 51, 6, 17 },
-    [ ATLAS_FONT+127 ] = { 108, 51, 6, 17 },
+    
+    [ ATLAS_FONT + 0x0020 ] = { 2, 2, 16+1.5, 32},
+    [ ATLAS_FONT + 0x0021 ] = { 50, 172, 4+1.5, 32,},
+    [ ATLAS_FONT + 0x0022 ] = { 225, 138, 8+1.5, 32,},
+    [ ATLAS_FONT + 0x0023 ] = { 56, 2, 16+1.5, 32,},
+    [ ATLAS_FONT + 0x0024 ] = { 142, 2, 14+1.5, 32,},
+    [ ATLAS_FONT + 0x0025 ] = { 74, 2, 16+1.5, 32,},
+    [ ATLAS_FONT + 0x0026 ] = { 109, 2, 15+1.5, 32,},
+    [ ATLAS_FONT + 0x0027 ] = { 44, 172, 4+1.5, 32,},
+    [ ATLAS_FONT + 0x0028 ] = { 235, 138, 8+1.5, 32,},
+    [ ATLAS_FONT + 0x0029 ] = { 215, 138, 8+1.5, 32,},
+    [ ATLAS_FONT + 0x002A ] = { 100, 104, 12+1.5, 32,},
+    [ ATLAS_FONT + 0x002B ] = { 158, 2, 14+1.5, 32,},
+    [ ATLAS_FONT + 0x002C ] = { 28, 172, 6+1.5, 32,},
+    [ ATLAS_FONT + 0x002D ] = { 138, 138, 10+1.5, 32,},
+    [ ATLAS_FONT + 0x002E ] = { 36, 172, 6+1.5, 32,},
+    [ ATLAS_FONT + 0x002F ] = { 44, 104, 12+1.5, 32,},
+    [ ATLAS_FONT + 0x0030 ] = { 34, 36, 14+1.5, 32,},
+    [ ATLAS_FONT + 0x0031 ] = { 173, 138, 9+1.5, 32,},
+    [ ATLAS_FONT + 0x0032 ] = { 240, 36, 13+1.5, 32,},
+    [ ATLAS_FONT + 0x0033 ] = { 58, 104, 12+1.5, 32,},
+    [ ATLAS_FONT + 0x0034 ] = { 225, 36, 13+1.5, 32,},
+    [ ATLAS_FONT + 0x0035 ] = { 16, 104, 12+1.5, 32,},
+    [ ATLAS_FONT + 0x0036 ] = { 30, 104, 12+1.5, 32,},
+    [ ATLAS_FONT + 0x0037 ] = { 72, 104, 12+1.5, 32,},
+    [ ATLAS_FONT + 0x0038 ] = { 128, 104, 12+1.5, 32,},
+    [ ATLAS_FONT + 0x0039 ] = { 122, 70, 13+1.5, 32,},
+    [ ATLAS_FONT + 0x003A ] = { 20, 172, 6+1.5, 32,},
+    [ ATLAS_FONT + 0x003B ] = { 11, 172, 7+1.5, 32,},
+    [ ATLAS_FONT + 0x003C ] = { 223, 70, 12+1.5, 32,},
+    [ ATLAS_FONT + 0x003D ] = { 178, 36, 14+1.5, 32,},
+    [ ATLAS_FONT + 0x003E ] = { 209, 70, 12+1.5, 32,},
+    [ ATLAS_FONT + 0x003F ] = { 195, 70, 12+1.5, 32,},
+    [ ATLAS_FONT + 0x0040 ] = { 114, 36, 14+1.5, 32,},
+    [ ATLAS_FONT + 0x0041 ] = { 162, 36, 14+1.5, 32,},
+    [ ATLAS_FONT + 0x0042 ] = { 92, 70, 13+1.5, 32,},
+    [ ATLAS_FONT + 0x0043 ] = { 77, 70, 13+1.5, 32,},
+    [ ATLAS_FONT + 0x0044 ] = { 107, 70, 13+1.5, 32,},
+    [ ATLAS_FONT + 0x0045 ] = { 113, 138, 11+1.5, 32,},
+    [ ATLAS_FONT + 0x0046 ] = { 167, 70, 12+1.5, 32,},
+    [ ATLAS_FONT + 0x0047 ] = { 194, 36, 14+1.5, 32,},
+    [ ATLAS_FONT + 0x0048 ] = { 2, 138, 12+1.5, 32,},
+    [ ATLAS_FONT + 0x0049 ] = { 126, 138, 10+1.5, 32,},
+    [ ATLAS_FONT + 0x004A ] = { 100, 138, 11+1.5, 32,},
+    [ ATLAS_FONT + 0x004B ] = { 47, 70, 13+1.5, 32,},
+    [ ATLAS_FONT + 0x004C ] = { 156, 104, 12+1.5, 32,},
+    [ ATLAS_FONT + 0x004D ] = { 222, 2, 14+1.5, 32,},
+    [ ATLAS_FONT + 0x004E ] = { 130, 36, 14+1.5, 32,},
+    [ ATLAS_FONT + 0x004F ] = { 18, 36, 14+1.5, 32,},
+    [ ATLAS_FONT + 0x0050 ] = { 62, 70, 13+1.5, 32,},
+    [ ATLAS_FONT + 0x0051 ] = { 190, 2, 14+1.5, 32,},
+    [ ATLAS_FONT + 0x0052 ] = { 210, 36, 13+1.5, 32,},
+    [ ATLAS_FONT + 0x0053 ] = { 146, 36, 14+1.5, 32,},
+    [ ATLAS_FONT + 0x0054 ] = { 174, 2, 14+1.5, 32,},
+    [ ATLAS_FONT + 0x0055 ] = { 142, 104, 12+1.5, 32,},
+    [ ATLAS_FONT + 0x0056 ] = { 92, 2, 15+1.5, 32,},
+    [ ATLAS_FONT + 0x0057 ] = { 38, 2, 16+1.5, 32,},
+    [ ATLAS_FONT + 0x0058 ] = { 50, 36, 14+1.5, 32,},
+    [ ATLAS_FONT + 0x0059 ] = { 66, 36, 14+1.5, 32,},
+    [ ATLAS_FONT + 0x005A ] = { 184, 104, 12+1.5, 32,},
+    [ ATLAS_FONT + 0x005B ] = { 2, 172, 7+1.5, 32,},
+    [ ATLAS_FONT + 0x005C ] = { 170, 104, 12+1.5, 32,},
+    [ ATLAS_FONT + 0x005D ] = { 245, 138, 7+1.5, 32,},
+    [ ATLAS_FONT + 0x005E ] = { 198, 104, 12+1.5, 32,},
+    [ ATLAS_FONT + 0x005F ] = { 2, 36, 14+1.5, 32,},
+    [ ATLAS_FONT + 0x0060 ] = { 195, 138, 8+1.5, 32,},
+    [ ATLAS_FONT + 0x0061 ] = { 212, 104, 12+1.5, 32,},
+    [ ATLAS_FONT + 0x0062 ] = { 17, 70, 13+1.5, 32,},
+    [ ATLAS_FONT + 0x0063 ] = { 240, 104, 12+1.5, 32,},
+    [ ATLAS_FONT + 0x0064 ] = { 137, 70, 13+1.5, 32,},
+    [ ATLAS_FONT + 0x0065 ] = { 181, 70, 12+1.5, 32,},
+    [ ATLAS_FONT + 0x0066 ] = { 58, 138, 12+1.5, 32,},
+    [ ATLAS_FONT + 0x0067 ] = { 32, 70, 13+1.5, 32,},
+    [ ATLAS_FONT + 0x0068 ] = { 72, 138, 12+1.5, 32,},
+    [ ATLAS_FONT + 0x0069 ] = { 86, 138, 12+1.5, 32,},
+    [ ATLAS_FONT + 0x006A ] = { 205, 138, 8+1.5, 32,},
+    [ ATLAS_FONT + 0x006B ] = { 44, 138, 12+1.5, 32,},
+    [ ATLAS_FONT + 0x006C ] = { 30, 138, 12+1.5, 32,},
+    [ ATLAS_FONT + 0x006D ] = { 126, 2, 14+1.5, 32,},
+    [ ATLAS_FONT + 0x006E ] = { 16, 138, 12+1.5, 32,},
+    [ ATLAS_FONT + 0x006F ] = { 2, 104, 12+1.5, 32,},
+    [ ATLAS_FONT + 0x0070 ] = { 2, 70, 13+1.5, 32,},
+    [ ATLAS_FONT + 0x0071 ] = { 152, 70, 13+1.5, 32,},
+    [ ATLAS_FONT + 0x0072 ] = { 150, 138, 10+1.5, 32,},
+    [ ATLAS_FONT + 0x0073 ] = { 114, 104, 12+1.5, 32,},
+    [ ATLAS_FONT + 0x0074 ] = { 237, 70, 12+1.5, 32,},
+    [ ATLAS_FONT + 0x0075 ] = { 86, 104, 12+1.5, 32,},
+    [ ATLAS_FONT + 0x0076 ] = { 98, 36, 14+1.5, 32,},
+    [ ATLAS_FONT + 0x0077 ] = { 20, 2, 16+1.5, 32,},
+    [ ATLAS_FONT + 0x0078 ] = { 206, 2, 14+1.5, 32,},
+    [ ATLAS_FONT + 0x0079 ] = { 82, 36, 14+1.5, 32,},
+    [ ATLAS_FONT + 0x007A ] = { 226, 104, 12+1.5, 32,},
+    [ ATLAS_FONT + 0x007B ] = { 184, 138, 9+1.5, 32,},
+    [ ATLAS_FONT + 0x007C ] = { 56, 172, 4+1.5, 32,},
+    [ ATLAS_FONT + 0x007D ] = { 162, 138, 9+1.5, 32,},
+    [ ATLAS_FONT + 0x007E ] = { 238, 2, 14+1.5, 32,},
 };
 
