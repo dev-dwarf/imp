@@ -26,7 +26,10 @@
    - support multiple Y (2D) or Z (3D) axis scales on same plotbox.
 
    - software clipping with linear projection.
-   - 
+
+   - multiple grid levels, zoomable grid + labels
+   - keep consistent label formatting for zoom level
+   - rework zooming to zoom region not plot box
  */
 
 #include "third_party/raylib/raylib.h"
@@ -51,6 +54,8 @@ static Texture atlas;
 #include "atlas.h"
 
 #include "imp.h"
+#define CLAMP(x,a,b) (((x)<(a))?(a):((b)<(x))?(b):(x))
+
 static Context *imp;
 
 enum {
@@ -109,6 +114,7 @@ typedef struct ImpPlot {
     Rect screen;
     HMM_Vec3 plot_min;
     HMM_Vec3 plot_max;
+    HMM_Vec3 plot_scale;
     HMM_Vec3 view_radius;
     HMM_Vec3 view_pos;
     HMM_Vec3 view_up;
@@ -138,6 +144,9 @@ typedef struct ImpPlot {
 
     f32 line_size_f;
     f32 text_size_f;
+    str xtick_format;
+    str ytick_format;
+    str ztick_format;
     
     HMM_Vec3 text_percent_offset;
     f32 grid_margin;
@@ -202,15 +211,21 @@ void ImpDrawLine(ImpPlot *plot, HMM_Vec3 start, HMM_Vec3 end, Color color, float
     ImpDrawTexQuadFromAtlas(p, r, color);
 }
 
+s32 ImpInsideViewBox(ImpPlot *plot, HMM_Vec3 p) {
+    return !((fabs(p.X) > plot->view_radius.X) ||
+             (fabs(p.Y) > plot->view_radius.Y) ||
+             (fabs(p.Z) > plot->view_radius.Z));
+}
+
 void ImpDrawGridLines(ImpPlot *plot, HMM_Vec3 start, HMM_Vec3 end, HMM_Vec3 sweep, Color color, s32 n, float thickness) {
     HMM_Vec3 step = HMM_DivV3F(sweep, n-1);
     ImpDrawPlane p;
     HMM_Vec3 dir = HMM_SubV3(end, start);
 
-
     Rectangle r = atlas_rect[IMP_LINE_TEXTURE];
     for (s32 i = 0; i < n; i++) {
-        ImpDrawLine(plot, start, end, color, thickness);
+        if (ImpInsideViewBox(plot, start))
+            ImpDrawLine(plot, start, end, color, thickness);
         start = HMM_AddV3(start, step);
         end = HMM_AddV3(end, step);
     }
@@ -255,6 +270,14 @@ static void ImpDrawText3D(ImpPlot *plot, ImpDrawPlane plane, str text, Color col
     scale *= plot->text_size_f;
     plane.r = HMM_MulV3F(plane.r, scale);
     plane.u = HMM_MulV3F(plane.u, scale);
+
+    if (text.str[0] == '-') {
+        Rectangle r = atlas_rect[ATLAS_FONT + '-'];
+        ImpDrawPlane p = plane;
+        p.r = HMM_MulV3F(p.r, r.width);
+        plane.bl = HMM_SubV3(plane.bl, p.r);
+    }
+    
     for (s32 i = 0; i < text.len; i++) {
         Rectangle r = atlas_rect[ATLAS_FONT + text.str[i]];
         ImpDrawPlane p = plane;
@@ -265,11 +288,46 @@ static void ImpDrawText3D(ImpPlot *plot, ImpDrawPlane plane, str text, Color col
     }
 }
 
+s32 str_char_location(str s, char find) {
+    char c = s.str[0];
+    for (s32 i = 0; i < s.len; i++, c = s.str[i]) {
+        if (c == find) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+#define IMP_ABS(a) (((a) < 0)? -(a) : (a))
+static str ImpGetAxisLabelPrecision(ImpPlot* plot, f32 a, f32 b) {
+    s32 afprec = strf(imp, "%'.f", IMP_ABS(a)).len;
+    s32 bfprec = strf(imp, "%'.f", IMP_ABS(b)).len;
+    s32 aeprec = strf(imp, "%.e", IMP_ABS(a)).len;
+    s32 beprec = strf(imp, "%.e", IMP_ABS(b)).len;
+    s32 fprec = MAX(afprec, bfprec);
+    s32 eprec = MAX(aeprec, beprec);
+    s32 test = snprintf(0, 0, "%f", IMP_ABS(a));
+
+    if (fprec-2 < eprec) {
+        return strf(imp, "%%%d.f", MAX(fprec, 1));
+    } else {
+        return strf(imp, "%%%d.e", MAX(eprec, 1));
+    }
+}
+
+f32 modabsf(f32 x, f32 y) {
+    return (x >= 0)? fmodf(x, y) : y + fmodf(x, y);
+    /* return copysignf(fmodf(fabs(x), y), x); */
+}
+
 void ImpDrawPlot(ImpPlot* plot, HMM_Vec3 camera_pos) {
     Color color = {.r = 0xdd, .g = 0xdd, .b = 0xdd, .a = 0xff};
     rlColor4ub(color.r, color.g, color.b, color.a);
 
-    f32 _margin = (plot->flags & IMP_GRID_MARGIN)? 1 + plot->grid_margin : 1;
+    /* TODO: margin breaks out of view box check rn, figure out way to fix this */
+    /* f32 _margin = (plot->flags & IMP_GRID_MARGIN)? 1 + plot->grid_margin : 1; */
+    f32 _margin = 1;
+    
     HMM_Vec3 margin = HMM_MulV3F(plot->view_radius, -_margin);
     HMM_Vec3 margax = HMM_MulV3F(plot->view_radius, _margin);
     HMM_Vec3 center = {0,0,0};
@@ -291,10 +349,18 @@ void ImpDrawPlot(ImpPlot* plot, HMM_Vec3 camera_pos) {
     label_percent_offset.Y = 1 + plot->text_percent_offset.Y*plot->zoom;
     label_percent_offset.Z = 1 + plot->text_percent_offset.Z*plot->zoom;
 
+    
     color = BLACK;
 #define COLOR_AXES BLACK
 #define COLOR_GRID_LINE LIGHTGRAY
-#define N_GRID_LINES 6
+#define N_GRID_LINES 11
+
+    f32 nx = 2*plot->view_radius.X/(N_GRID_LINES-1);
+    f32 mx = modabsf(plot->plot_min.X/plot->plot_scale.X, nx);
+    f32 px = modabsf(plot->plot_min.X, plot->plot_max.X - plot->plot_min.X);
+
+    f32 my = modabsf(plot->plot_min.Y/plot->plot_scale.Y, 2*plot->view_radius.Y/(N_GRID_LINES-1));
+
 
     if (plot->flags & IMP_GRID_XY) {
         Color c = COLOR_GRID_LINE;
@@ -302,9 +368,11 @@ void ImpDrawPlot(ImpPlot* plot, HMM_Vec3 camera_pos) {
         
         if (camera_pos.Z > center.Z) {
             /* Bottom */
-            ImpDrawGridLines(plot, HMM_V3(min.X, margin.Y, min.Z), HMM_V3(min.X, margax.Y, min.Z),
+            
+                        
+            ImpDrawGridLines(plot, HMM_V3(min.X - mx, margin.Y, min.Z), HMM_V3(min.X - mx, margax.Y, min.Z),
                              HMM_V3(max.X-min.X, 0, 0), c, N_GRID_LINES, 1);
-            ImpDrawGridLines(plot, HMM_V3(margin.X, min.Y, min.Z), HMM_V3(margax.X, min.Y, min.Z),
+            ImpDrawGridLines(plot, HMM_V3(margin.X, min.Y - my, min.Z), HMM_V3(margax.X, min.Y - my, min.Z),
                              HMM_V3(0, max.Y-min.Y, 0), c, N_GRID_LINES, 1);
         } else {
             /* Top */
@@ -321,10 +389,11 @@ void ImpDrawPlot(ImpPlot* plot, HMM_Vec3 camera_pos) {
                     
         if (camera_pos.Y > center.Y) {
             /* Right */
-            ImpDrawGridLines(plot, HMM_V3(min.X, min.Y, margin.Z), HMM_V3(min.X, min.Y, margax.Z),
-                             HMM_V3(max.X-min.X, 0, 0), c, N_GRID_LINES, 1);
             ImpDrawGridLines(plot, HMM_V3(margin.X, min.Y, min.Z), HMM_V3(margax.X, min.Y, min.Z),
                              HMM_V3(0, 0, max.Z-min.Z), c, N_GRID_LINES, 1);
+            ImpDrawGridLines(plot, HMM_V3(min.X, min.Y, margin.Z), HMM_V3(min.X, min.Y, margax.Z),
+                             HMM_V3(max.X-min.X, 0, 0), c, N_GRID_LINES, 1);
+            
 
         } else {
             /* Left */
@@ -372,15 +441,26 @@ void ImpDrawPlot(ImpPlot* plot, HMM_Vec3 camera_pos) {
         HMM_Vec3 lend = end; lend.X = margax.X;
 
         ImpDrawLine(plot, lclosest, lend, c, 1);
+
+        plot->xtick_format = ImpGetAxisLabelPrecision(plot, plot->plot_min.X, plot->plot_max.X);
         
-        for (s32 i = 0; i < N_GRID_LINES; i++) {
+        for (s32 i = 0; i < N_GRID_LINES+1; i++) {
             f32 x = (f64)i/(f64)(N_GRID_LINES-1);
             ImpDrawPlane p = plot->billboard;
             p.bl = HMM_MulV3F(closest, num_percent_offset.X);
-            p.bl.X = HMM_Lerp(closest.X, x, end.X);
-            str s = strf(imp, "%0.3g", HMM_Lerp(plot->plot_min.X, x, plot->plot_max.X));
-            p = ImpAlignText(plot, p, ImpMeasureText(s), num_text_size, align_h, align_v);
-            ImpDrawText3D(plot, p, s, c, num_text_size);
+            p.bl.X = HMM_Lerp(closest.X - mx, x, end.X - mx);
+
+            f32 f = 0.2*num_text_size + plot->view_radius.X - fabs(p.bl.X);
+            if (f > 0) {
+                f32 fade = CLAMP(f/(0.2*num_text_size), 0, 1);
+                str s = strf(imp, plot->xtick_format.str, HMM_Lerp(plot->plot_min.X, x, plot->plot_max.X) - mx*plot->plot_scale.X);
+                if (str_eq(s, imp_str("-0"))) {
+                    s = imp_str("0");
+                }
+                p = ImpAlignText(plot, p, ImpMeasureText(s), num_text_size, align_h, align_v);
+                c.a = 255*fade;
+                ImpDrawText3D(plot, p, s, c, num_text_size);
+            }
         }
 
         c = (Color){.r=0xdf, .g=color.g, .b=color.b, .a=color.a};
@@ -411,14 +491,26 @@ void ImpDrawPlot(ImpPlot* plot, HMM_Vec3 camera_pos) {
 
         ImpDrawLine(plot, lclosest, lend, c, 1);
 
-        for (s32 i = 0; i < N_GRID_LINES; i++) {
+        plot->ytick_format = ImpGetAxisLabelPrecision(plot, plot->plot_min.Y, plot->plot_max.Y);
+
+        for (s32 i = 0; i < N_GRID_LINES+1; i++) {
             f32 y = (f64)i/(f64)(N_GRID_LINES-1);
             ImpDrawPlane p = plot->billboard;
             p.bl = HMM_MulV3F(closest, num_percent_offset.Y);
-            p.bl.Y = HMM_Lerp(closest.Y, y, end.Y);
-            str s = strf(imp, "%0.3g", HMM_Lerp(plot->plot_min.Y, y, plot->plot_max.Y));
-            p = ImpAlignText(plot, p, ImpMeasureText(s), num_text_size, align_h, align_v);
-            ImpDrawText3D(plot, p, s, c, num_text_size);
+            p.bl.Y = HMM_Lerp(closest.Y - my, y, end.Y - my);
+
+            f32 f = 0.2*num_text_size + plot->view_radius.Y - fabs(p.bl.Y);
+            if (f > 0) {
+                f32 fade = CLAMP(f/(0.5*num_text_size), 0, 1);
+                str s = strf(imp, plot->ytick_format.str, HMM_Lerp(plot->plot_min.Y, y, plot->plot_max.Y) - my*plot->plot_scale.Y);
+                if (str_eq(s, imp_str("-0"))) {
+                    s = imp_str("0");
+                }
+                
+                p = ImpAlignText(plot, p, ImpMeasureText(s), num_text_size, align_h, align_v);
+                c.a = 255*fade;
+                ImpDrawText3D(plot, p, s, c, num_text_size);
+            }
         }
 
         c = (Color){.r=color.r, .g=0xdf, .b=color.b, .a=color.a};
@@ -450,13 +542,15 @@ void ImpDrawPlot(ImpPlot* plot, HMM_Vec3 camera_pos) {
         HMM_Vec3 lend = end; lend.Z = margax.Z;
         
         ImpDrawLine(plot, lclosest, lend, c, 1);
+
+        plot->ztick_format = ImpGetAxisLabelPrecision(plot, plot->plot_min.Z, plot->plot_max.Z);
         
         for (s32 i = 0; i < N_GRID_LINES; i++) {
             f32 z = (f64)i/(f64)(N_GRID_LINES-1);
             ImpDrawPlane p = plot->billboard;
             p.bl = HMM_MulV3F(closest, num_percent_offset.Z);
             p.bl.Z = HMM_Lerp(closest.Z, z, end.Z);
-            str s = strf(imp, "%0.3g", HMM_Lerp(plot->plot_min.Z, z, plot->plot_max.Z));
+            str s = strf(imp, plot->ztick_format.str, HMM_Lerp(plot->plot_min.Z, z, plot->plot_max.Z));
             p = ImpAlignText(plot, p, ImpMeasureText(s), num_text_size, align_h, align_v);
             ImpDrawText3D(plot, p, s, c, num_text_size);
         }
@@ -485,12 +579,12 @@ int main(void)
     imp_init(imp, 0, 0, 0);
 
     ImpPlot Plot = {
-        .flags = IMP_PRESET_3D,
+        /* .flags = IMP_PRESET_3D, */
         .view_pos = {-1, -1, +1},
         .view_radius = {+1, +1, +1},
-        .plot_min = {0, 0, 0},
+        .plot_min = {-5, -5, -5},
         .plot_max = {+5, +5, +5},
-        /* .flags = IMP_PRESET_2D, */
+        .flags = IMP_PRESET_2D,
         .zoom = 1,
         .fov = 75,
         .grid_margin = 0.05,
@@ -507,12 +601,12 @@ int main(void)
         0.5*len_radius/(3*3*Plot.view_radius.X*Plot.view_radius.Y),
     };
 
-    f32 text_scale = 5.0;
+    f32 text_scale = 3.0;
     Plot.text_size = HMM_SqrtF(text_scale*0.000001)*len_radius;
     Plot.text_percent_offset = bivec_radius;
     Plot.view_pos = HMM_MulV3F(Plot.view_pos, HMM_SqrtF(max_radius/2));
 
-    SetConfigFlags(FLAG_MSAA_4X_HINT);
+    /* SetConfigFlags(FLAG_MSAA_4X_HINT); */
     InitWindow(screenWidth, screenHeight, "imp");
     SetTargetFPS(60);
     /* DisableCursor(); */
@@ -582,7 +676,7 @@ int main(void)
     f32 drag_z = 0;
     f32 drag_start_y = 0;
 
-    s32 points = 1 << 10;
+    s32 points = 1 << 12;
     f32 t = 0;
     HMM_Vec3 *point = malloc(sizeof(HMM_Vec3)*(1 << 17));
     HMM_Vec3 *point2 = malloc(sizeof(HMM_Vec3)*(1 << 17));
@@ -601,6 +695,12 @@ int main(void)
     }
 
     while (!WindowShouldClose()) {
+
+        if (IsKeyDown(KEY_W)) {
+            Plot.plot_min.X += t*t;
+            Plot.plot_max.X += t*t;
+        }
+        
         if (IsKeyPressed(KEY_SPACE)) {
             Plot.flags = (Plot.flags & IMP_CAMERA_PERSPECTIVE)? Plot.flags & ~IMP_CAMERA_PERSPECTIVE
                 : Plot.flags | IMP_CAMERA_PERSPECTIVE;
@@ -627,7 +727,7 @@ int main(void)
             }
 
             /* Panning Controls */
-            f32 pan_sensitivity = 0.5;
+            f32 pan_sensitivity = 1;
             HMM_Vec2 mouse = HMM_V2(GetMouseX(), GetMouseY());
             HMM_Vec2 size = HMM_V2(GetScreenWidth(), GetScreenHeight());
             if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
@@ -642,9 +742,10 @@ int main(void)
                 f32 plot_scale = HMM_DotV3(plot_size, plot_size)/3;
                 
                 HMM_Vec3 pan = HMM_AddV3(
-                    HMM_MulV3F(Plot.billboard.r, (delta.X/size.X)*plot_scale*pan_sensitivity*Plot.zoom),
-                    HMM_MulV3F(Plot.billboard.u,-(delta.Y/size.Y)*plot_scale*pan_sensitivity*Plot.zoom)
+                    HMM_MulV3F(Plot.billboard.r, (delta.X/size.X)*pan_sensitivity*Plot.zoom),
+                    HMM_MulV3F(Plot.billboard.u,-(delta.Y/size.Y)*pan_sensitivity*Plot.zoom)
                     );
+                pan = HMM_MulV3(pan, plot_size);
                 Plot.plot_min = HMM_AddV3(Plot.drag_min, pan);
                 Plot.plot_max = HMM_AddV3(Plot.drag_max, pan);
             }
@@ -707,21 +808,22 @@ int main(void)
         Plot.billboard_z = HMM_NormV3(HMM_Cross(billboard_u, billboard_r));
         Plot.camera_pos = rot_pos;
 
-        Plot.line_size = 1.5;// + cos(t);
+        Plot.line_size = 2;// + cos(t);
         ImpDrawPlot(&Plot, rot_pos);
 
         HMM_Vec3 plot_center = HMM_MulV3F(HMM_LerpV3(Plot.plot_min, 0.5, Plot.plot_max), -1);
-        HMM_Vec3 plot_scale = HMM_MulV3(HMM_SubV3(Plot.plot_max, Plot.plot_min), HMM_MulV3F(Plot.view_radius, 0.5));
+        Plot.plot_scale = HMM_MulV3(HMM_SubV3(Plot.plot_max, Plot.plot_min), HMM_MulV3F(Plot.view_radius, 0.5));
         rlPushMatrix();
-        rlScalef(1/plot_scale.X, 1/plot_scale.Y, 1/plot_scale.Z);
+        rlScalef(1/Plot.plot_scale.X, 1/Plot.plot_scale.Y, 1/Plot.plot_scale.Z);
         rlTranslatef(plot_center.X, plot_center.Y, plot_center.Z);
         
         Color color = RED;
 
+
         ImpDrawPlane plane = Plot.billboard;
         Rectangle rect = atlas_rect[IMP_MARKER_CIRCLE];
-        plane.r = HMM_MulV3(HMM_MulV3F(plane.r, 0.50*Plot.text_size*rect.width *(Plot.zoom)), plot_scale);
-        plane.u = HMM_MulV3(HMM_MulV3F(plane.u, 0.50*Plot.text_size*rect.height*(Plot.zoom)), plot_scale);
+        plane.r = HMM_MulV3(HMM_MulV3F(plane.r, 0.50*Plot.text_size*rect.width *(Plot.zoom)), Plot.plot_scale);
+        plane.u = HMM_MulV3(HMM_MulV3F(plane.u, 0.50*Plot.text_size*rect.height*(Plot.zoom)), Plot.plot_scale);
 
         rlBegin(RL_QUADS);
         for (s32 i = 0; i < points; i++) {
@@ -730,8 +832,10 @@ int main(void)
                 /* 2.5*(1+cos(r*90)*sin(r*60+t)), */
                 /* 2.5*(1+sin(r*90)*cos(r*60+t)), */
                 /* 2.5*(1+sin(30*r)*cos(r*5.+t)) */
-                2.5+cos(0.5*t+r),
-                2.5+sin(t+r)+cos(2*r+t),
+                r-3.14,
+                modabsf(r-3.14, 1),
+                /* 2.5+cos(0.5*t+r), */
+                /* 2.5+sin(t+r)+cos(2*r+t), */
                 2.5+sin(t+r)*cos(2*(r+t))
                 );
 
@@ -763,7 +867,7 @@ int main(void)
 
 
         DrawFPS(8, 8);
-        DrawTexture(atlas, 0, 0, RED);
+        /* DrawTexture(atlas, 0, 0, RED); */
         
         EndDrawing();
     }

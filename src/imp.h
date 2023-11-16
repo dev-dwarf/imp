@@ -361,6 +361,7 @@ str strfv(Context *imp, char *fmt, va_list args) {
     str result = (str){0};
     result.str = imp->char_buffer + imp->char_pos;
     result.len = IMP_VSNSPRINTF(imp->char_buffer + imp->char_pos, IMP_CHAR_BUFFER_SIZE - imp->char_pos, fmt, args);
+    result.str[result.len+1] = '\0';
     imp->char_pos += result.len+1; /* include null terminator */
     return result;
 }
@@ -371,6 +372,12 @@ str strf(Context *imp, char *fmt, ...) {
     str result = strfv(imp, fmt, args);
     va_end(args);
     return result;
+}
+
+s32 str_eq(str a, str b) {
+    return (a.len == b.len) &&
+        ((a.len == 0)
+         || (memcmp(a.str, b.str, a.len) == 0));
 }
 
 #define HEXCOLOR(hex) {                         \
