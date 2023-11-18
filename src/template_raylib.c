@@ -1,6 +1,5 @@
 /* TODO(lcf, September 26, 2023)
    - major and minor grids
-   -- should be able to set number of grid lines
    -- should also have good defaults that dont require config
    -- also just ticks but no grid option.
 
@@ -9,15 +8,6 @@
 
    - start making drawing more configurable.
    - switch to draw commands system.
-
-   - translation
-   - drag and move translation
-   - simple in 2d, how should work in 3d?
-
-   - fix 2d mode text alignment issue.
-
-   - figure out number of grid lines automatically.
-   - also let it be configured.
 
    - panning should maintain grid line positions to some extent.
 
@@ -29,7 +19,11 @@
 
    - multiple grid levels, zoomable grid + labels
    - keep consistent label formatting for zoom level
-   - rework zooming to zoom region not plot box
+
+   - lod grid lines
+   - figure out number of grid lines automatically.
+   - also let it be configured.
+
  */
 
 #include "third_party/raylib/raylib.h"
