@@ -24,6 +24,8 @@
    - figure out number of grid lines automatically.
    - also let it be configured.
 
+
+   - need a big restructuring of damn near everything.
  */
 
 #include "third_party/raylib/raylib.h"
