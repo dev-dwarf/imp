@@ -1,14 +1,20 @@
 // TODO(lf) namespacing
 
-// TODO(lf)
-// how to deal with data cache memory?
-// can keep list of used plots for current frame and collect garbage
-// each series may need cache data
-// cache data is:
-// 0 if n points is < plot.w (just use points directly)
-// else plot.w if time series
-// else plot.w*plot.h 
-// we can collect garbage and compact 
+/* TODO(lf)
+how to deal with data cache memory?
+can keep list of used plots for current frame and collect garbage
+each series may need cache data
+cache data is:
+  0 if n points is < plot.w (just use points directly)
+  else plot.w if time series
+  else plot.w*plot.h 
+  we can collect garbage and compact 
+
+
+LONG-TERM:
+- 3D plots
+
+*/
 
 #include <stdint.h>
 
