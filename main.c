@@ -34,7 +34,7 @@ int main(int argc, char* argv[]) {
     SDL_Palette *atlas_palette ;
     ASSERT_SDL(atlas_surface = SDL_CreateSurfaceFrom(ATLAS_WIDTH, ATLAS_HEIGHT, SDL_PIXELFORMAT_INDEX8, ATLAS_DATA, ATLAS_WIDTH));
     ASSERT_SDL(atlas_palette = SDL_CreatePalette(256));
-    for (int i = 0; i < 256; i++) { atlas_palette->colors[i] = (SDL_Color) { i, i, i, 256}; }
+    for (int i = 0; i < 256; i++) { atlas_palette->colors[i] = (SDL_Color) { i, i, i, 255}; }
     ASSERT_SDL(SDL_SetSurfacePalette(atlas_surface, atlas_palette));
     ASSERT_SDL(atlas_texture = SDL_CreateTextureFromSurface(renderer, atlas_surface));
 
