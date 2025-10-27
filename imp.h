@@ -10,6 +10,8 @@
 // else plot.w*plot.h 
 // we can collect garbage and compact 
 
+#include <stdint.h>
+
 #define ARRAY_LENGTH(A) (sizeof(A)/sizeof(*(A)))
 
 #define MIN(a,b) (((a)<(b))?(a):(b))
@@ -32,52 +34,83 @@ typedef struct imp_str {
 typedef union imp_v2 {
   struct { float x, y; }; // x, y point
   struct { float w, h; }; // width, height size
-  struct { float l, h; }; // low, high range
+  struct { float l, _h; }; // low, high range
 } imp_v2;    
 
 typedef struct imp_rect { 
   float x, y, w, h;
-} imp_rect;
+} imp_r2;
 
 typedef struct imp_color {
   float r, g, b, a;
-} imp_color;
+} imp_cf;
 
 typedef struct imp_text {
   imp_str s;
   imp_v2 scale;
   imp_v2 position;
-  imp_color c;
+  imp_cf c;
 } imp_text;
 
 typedef struct imp_input {
-  imp_rect screen; 
+  imp_r2 screen; 
   imp_v2 mouse; // mouse coords in screen-ref
+  uint32_t mouse_flags;
   imp_str text;
 } imp_input;
 
-#define IMP_ARENA_COMMIT_FUN(name) int name(void* memory, unsigned int size)
-#define IMP_ARENA_DECOMMIT_FUN(name) void name(void* memory, unsigned int size)
+// MEMORY
+// the imp arena can be passed a fixed size block, or a virtual memory
+// block with appropriate callbacks. imp never does any allocations,
+// and failed allocations will be handled by all apis.
+#define IMP_ARENA_COMMIT_FUN(name) void name(void* memory, uint32_t size)
+#define IMP_ARENA_DECOMMIT_FUN(name) void name(void* memory, uint32_t size)
 typedef IMP_ARENA_COMMIT_FUN(imp_arena_commit_fun);
 typedef IMP_ARENA_DECOMMIT_FUN(imp_arena_decommit_fun);
 
 typedef struct imp_arena {
-  unsigned char *mem;
-  unsigned int size;
-  unsigned int max_size;
-  imp_arena_commit_fun *commit;
-  imp_arena_decommit_fun *decommit;
+  uint8_t *mem;
+  uint32_t used; // 
+  uint32_t size; // max size
+  uint32_t commit; // commited size
+  uint32_t commit_block; // block size to commit
+  imp_arena_commit_fun *commit_fun;
+  imp_arena_decommit_fun *decommit_fun;
 } imp_arena;
 
-void *imp_arena_take(imp_arena *a, unsigned int size);
-void *imp_arena_reset(imp_arena *a, unsigned int size);
+void *imp_arena_take(imp_arena *a, uint32_t size, uint32_t align);
+void *imp_arena_reset(imp_arena *a, uint32_t size);
+
+static inline uintptr_t _imp_next_align(uintptr_t ptr, uint32_t align) {
+  uintptr_t align1 = (align-1); // align must be power of 2
+  return ptr + align1 - ((ptr-1) & align1);
+}
+
+void *imp_arena_take(imp_arena *a, uint32_t size, uint32_t align) { 
+  uintptr_t p = _imp_next_align((uintptr_t) (a->mem + a->used), align);
+  uintptr_t new_used = p + size - ((uintptr_t) a->mem);
+  if (new_used <= a->size) {
+    // TODO virtual mem
+    // if (a->commit_block != 0 && new_pos > a->commit) {
+      // uintptr_t new_commit = next_align(p, a->commit_block);
+      // a->commit_fun(a->mem, new_commit - ((uintptr_t) a->mem));
+    // }
+    a->used = new_used;
+    return (void*) p;
+  }
+  return 0;
+}
+void *imp_arena_reset(imp_arena *a, uint32_t size) {
+  // TODO virtual mem
+  a->used = 0;
+}
 
 
-typedef struct imp_context {
-  imp_input input;
-  imp_mem mem_string; // storing strings used in rendering ()
-  imp_mem mem_cache; // storing caches of plot data (rec: proportional to n plots * plot w * plot h)
-} imp_context;
+typedef struct imp_context imp_context;
+typedef struct imp_data imp_data;
+typedef struct imp_plot_params imp_plot_params;
+typedef struct imp_plot imp_plot;
+typedef struct imp_draw imp_draw;
 
 enum imp_data_type {
   IMP_NONE, // err
@@ -90,7 +123,7 @@ enum imp_data_type {
 };
 
 enum imp_data_flags {
-  IMP_NOT_SERIES      = (1 << 0), // data is not a time series / x is not monotonic
+  IMP_NOT_SERIES      = (1 << 1), // data is not a time series / x is not monotonic
   // IMP_REVERSED     = (1 << x), // data is in reverse sorted order TODO(lf)
 };
 
@@ -100,45 +133,63 @@ enum imp_style_flags {
   IMP_MARKERS         = (1 << 2), // show markers at each point
 };
 
-typedef struct imp_data {
+struct imp_data {
   // core
-  unsigned int type;
+  uint32_t type;
   void *data; // data
   int n;
   int stride; // space in bytes between values in array at *data, 0 = sizeof(type)
+  uint32_t flags;
+  uint32_t hash;
 
   // decimation type TODO(lf)
 
   // style
   imp_str name;
-  imp_color color;
-  unsigned int style;
+  imp_cf color;
+  uint32_t style;
 
   // internal
   struct imp_data *_x;
   struct imp_data *_next;
-} imp_data;
+};
 
-typedef struct imp_plot_params {
+struct imp_plot_params {
   imp_text title;
-  imp_rect screen; // location in screen-ref
-  imp_rect view; // target view rectangle, data-ref
+  imp_r2 screen; // location in screen-ref
+  imp_r2 view; // target view rectangle, data-ref
 
-  unsigned int default_series_flags;
-} imp_plot_params;
+  uint32_t default_data_flags;
+  uint32_t hash;
+};
 
-typedef struct imp_plot {
+struct imp_plot {
   imp_plot_params params;
   imp_context *context;
-  imp_rect _view; // current real view
+  imp_r2 _view; // current real view
   imp_v2 last_mouse;
   
   int x_series;
   int y_series;
+
+  // internal
   imp_data *first_x; 
   imp_data *first_y;
-  imp_data *last_x; 
-} imp_plot;
+  imp_data *last_x; // x to match y with
+  imp_data *_free;
+  
+  imp_plot *_next;
+};
+
+struct imp_context {
+  imp_input input;
+  imp_arena mem_string; // storing strings used in rendering ()
+  imp_arena mem_cache; // storing caches of plot data (rec: proportional to n plots * plot w * plot h)
+
+  int plots;
+  imp_plot *first_plot;
+  imp_plot *free_plot;
+};
 
 // user-defined functions
 imp_v2 imp_measure_text(imp_text txt);
@@ -146,17 +197,17 @@ imp_v2 imp_render_text(imp_text txt);
 void imp_assert(imp_str error);
 
 // API
-typedef struct imp_draw {
+struct imp_draw {
   // TODO
-} imp_draw;
+};
 
 void imp_context_update(imp_context *context, imp_input input);
 int imp_next_draw(imp_context *context, imp_draw *cmd); // draw undrawn plots
 
 
 imp_plot *imp_plot_start(imp_context *context, imp_plot_params p);
-void imp_plot_x(imp_plot *p, imp_data *x);
-void imp_plot_y(imp_plot *p, imp_data *y);
+imp_data *imp_plot_x(imp_plot *p, imp_data x);
+imp_data *imp_plot_y(imp_plot *p, imp_data y);
 
 /* usage
 
@@ -164,8 +215,8 @@ void imp_plot_y(imp_plot *p, imp_data *y);
 imp_context *imp;
 
 imp_plot *p = imp_plot_start(&imp, (imp_plot) { .screen.w = 640, .screen.h = 360, .title = "test" });
-imp_plot_x(&p, &(imp_data){ IMP_U64, &t, 1000, .name="time"} );
-imp_plot_y(&p, &(imp_data){ IMP_F32, &y1, .name = "y1" } );
+imp_plot_x(&p, (imp_data){ IMP_U64, &t, 1000, .name="time"} );
+imp_plot_y(&p, (imp_data){ IMP_F32, &y1, .name = "y1" } );
 
 
 // .. later ..
@@ -180,59 +231,105 @@ for (imp_draw cmd; imp_next_draw(&imp, &cmd); ) {
 // ticks, axes, grid, lines, markers, labels, titles, legends
 // really thats boxes, lines, markers (images), and text
 */
-
-imp_plot *imp_plot_start(imp_context context, imp_plot_params p) {
-  
-  // TODO fill in default params
-
-  // TODO check for cached plot obj
-  imp_plot *plot = imp_arena_take(context->mem_cache, sizeof(imp_plot));
-  // assert plot != 0
-
-
-  
-  plot->params = p;
-
+uint32_t str_hash_fnv1a(imp_str s, uint32_t current) {
+    uint32_t hash = current? current : 0x811c9dc5;
+    for (int i = 0; i < s.len; i++) {
+        hash = (hash ^ (uint32_t)(s.str[i])) * 0x01000193;
+    }
+    return hash;
 }
 
-void imp_plot_x(imp_plot *p, imp_data *x) {
-    // TODO fill in defaults for x
-
-    // calc id 
-
-    // check for id in p
-
-    // TODO alloc decimation buffer for data, if n > p.width
-    // nvm should happen when drawing I think
-
-    // if not in p already TODO
-    if (p->x_series == 0) {
-      p->first_x = x;
+static imp_plot *_imp_get_plot(imp_context *context, uint32_t hash) {
+  // search ll for new plot
+  imp_plot *plot, *last_plot = 0;
+  for (plot = context->first_plot; plot; plot = plot->_next) {
+    if (plot->params.hash == hash) {
+      return plot;
     }
-    if (p->last_x) {
-      p->last_x->_next = x;
-    }
-    p->last_x = x;
-    p->x_series++;
+    last_plot = plot;
+  }
+  // allocate new plot
+  plot = (imp_plot*) imp_arena_take(&context->mem_cache, sizeof(imp_plot), 8);
+  if (!last_plot) {
+    context->first_plot = plot;
+  } else {
+    last_plot->_next = plot;
+  }
+  if (plot) {
+    context->plots++;
+  }
+  return plot;
 }
 
-void imp_plot_y(imp_plot *p, imp_data *y) {
+imp_plot *imp_plot_start(imp_context *context, imp_plot_params p) {
+  // TODO check that user actually passed required params like title, size
+  // TODO fill in default params where possible
+  if (!p.default_data_flags) {
+    p.default_data_flags |= IMP_LINES;
+  }
+
+  p.hash = p.hash? p.hash : str_hash_fnv1a(p.title.s, 0);
+
+  imp_plot *plot = _imp_get_plot(context, p.hash);
+  if (plot != 0) {
+    plot->params = p;
+    plot->context = context;
+  }
+  return plot;
+}
+
+imp_data *_imp_get_data(imp_plot *p, imp_data *d) {
+  imp_data **first; int *count;
+  if (d->_x) {
+    first = &p->first_y;
+    count = &p->y_series;
+  } else {
+    first = &p->first_x;
+    count = &p->x_series;
+  }
+  d->hash = d->hash? d->hash : str_hash_fnv1a(d->name, p->params.hash);
+  
+  imp_data *data, *last = 0;
+  for (data = *first; data; data = data->_next) {
+    if (data->hash == d->hash) {
+      return data;
+    }
+    last = data;
+  }
+  
+  data = (imp_data*) imp_arena_take(&p->context->mem_cache, sizeof(imp_data), 8);
+  if (!last) {
+    *first = data;
+  } else {
+    last->_next = data;
+  }
+  (*count)++;
+  return data;
+}
+
+imp_data *imp_plot_x(imp_plot *p, imp_data x) {
+    if (!p) return 0;
+    imp_data *d = _imp_get_data(p, &x);
+    if (d) {
+      *d = x;
+      p->last_x = d;
+    }
+}
+
+imp_data *imp_plot_y(imp_plot *p, imp_data y) {
+    if (!p) return 0;
     // TODO fill in defaults for y
-
-    // calc id
-
-    // check for id in p
 
     // TODO alloc decimation buffer for data, if n > p.width
     // nvm should happen when drawing I think
     
-    // ASSERT that there is an x and that this vaguely matches it
+    // TODO ASSERT that there is an x and that this vaguely matches it
     // y->_x
+    y._x = p->last_x;
 
-    // if not in p already TODO
-    if (p->y_series == 0) {
-      p->first_y = y;
+    imp_data *d = _imp_get_data(p, &y);
+    if (d) {
+      *d = y;
     }
-    p->y_series++;
 }
 

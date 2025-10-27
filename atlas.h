@@ -269,7 +269,7 @@ enum ATLAS_ICONS {
   ATLAS_FONT,
 };
 
-static rect ATLAS_RECT[256] = {
+static imp_r2 ATLAS_RECT[256] = {
   [ ATLAS_FONT + 0x0020 ] = { 183, 133, 7, 32 },
   [ ATLAS_FONT + 0x0021 ] = { 237, 133, 5, 32 },
   [ ATLAS_FONT + 0x0022 ] = { 158, 133, 8, 32 },
