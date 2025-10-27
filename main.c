@@ -7,44 +7,12 @@ static SDL_Renderer *renderer = 0;
 static SDL_Surface *atlas_surface = 0; 
 static SDL_Texture *atlas_texture = 0; 
 
-#define ARRAY_LENGTH(A) (sizeof(A)/sizeof(*(A)))
 #define ASSERT_SDL(cond) do { if (!(cond)) { SDL_Log( "" __FILE__ ":%d: " #cond " gave SDL Error: %s", __LINE__, SDL_GetError()); return -1; } } while(0);
-
-#define MIN(a,b) (((a)<(b))?(a):(b))
-#define MAX(a,b) (((a)>(b))?(a):(b))
-
-#ifdef __cplusplus
-#define STRUCT(type) type
-#define STRUCT_ZERO(type) {}
-#else
-#define STRUCT(type) (type)
-#define STRUCT_ZERO(type) (type){0}
-#endif
 
 #define WIDTH 640
 #define HEIGHT 480
 
-typedef struct str {
-  char *str;
-  int len;
-} str;
-#define strl(literal) STRUCT(str){literal, sizeof(literal"") - 1}
-
-typedef union vec2 {
-  struct { float x, y; };
-  struct { float w, h; };
-} vec2;    
-
-typedef struct rect { 
-  float x, y, w, h;
-} rect;
-
-typedef struct color {
-  float r, g, b, a;
-} color;
-
 #include "atlas.h"
-
 
 vec2 measure_text(str s) {
   vec2 out = {0};
