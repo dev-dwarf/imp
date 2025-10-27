@@ -22,7 +22,7 @@ static SDL_Texture *atlas_texture = 0;
 
 int main(int argc, char* argv[]) {
     ASSERT_SDL(SDL_Init(SDL_INIT_VIDEO) >= 0);
-    ASSERT_SDL(window = SDL_CreateWindow("IMP SDL3", WIDTH, HEIGHT, 0));
+    ASSERT_SDL(window = SDL_CreateWindow("IMP SDL3", WIDTH, HEIGHT, SDL_WINDOW_RESIZABLE));
     ASSERT_SDL(renderer = SDL_CreateRenderer(window, NULL));
     
     SDL_Event event;
@@ -35,10 +35,11 @@ int main(int argc, char* argv[]) {
     // SDL_PixelFormat atlas_format = SDL_DEFINE_PIXELFORMAT(SDL_PIXELTYPE_ARRAYU8, SDL_ARRAYORDER_NONE, SDL_PACKEDLAYOUT_NONE, 8, 1);
     SDL_Palette *atlas_palette ;
     ASSERT_SDL(atlas_surface = SDL_CreateSurfaceFrom(ATLAS_WIDTH, ATLAS_HEIGHT, SDL_PIXELFORMAT_INDEX8, ATLAS_DATA, ATLAS_WIDTH));
-    ASSERT_SDL(atlas_palette = SDL_CreatePalette(256));
-    for (int i = 0; i < 256; i++) { atlas_palette->colors[i] = (SDL_Color) { i, i, i, i}; }
+    ASSERT_SDL(atlas_palette = SDL_CreateSurfacePalette(atlas_surface));
+    for (int i = 0; i < 256; i++) { atlas_palette->colors[i] = (SDL_Color) { i, i, i, i }; }
     ASSERT_SDL(SDL_SetSurfacePalette(atlas_surface, atlas_palette));
     ASSERT_SDL(atlas_texture = SDL_CreateTextureFromSurface(renderer, atlas_surface));
+    ASSERT_SDL(SDL_SetTextureBlendMode(atlas_texture, SDL_BLENDMODE_BLEND_PREMULTIPLIED));
 
     while (running) {
         while (SDL_PollEvent(&event)) {
@@ -57,7 +58,7 @@ int main(int argc, char* argv[]) {
             }
         }
 
-        SDL_SetRenderDrawColor(renderer, 255, 0, 0, 255);
+        SDL_SetRenderDrawColor(renderer, 10, 3, 13, 255);
         SDL_RenderClear(renderer);
 
         SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
@@ -65,7 +66,7 @@ int main(int argc, char* argv[]) {
         SDL_FRect r = {0, 0, ATLAS_WIDTH, ATLAS_HEIGHT};
         SDL_RenderTexture(renderer, atlas_texture, &r, &r);
 
-        SDL_SetRenderDrawColor(renderer, 255, 0, 0, 255);
+        SDL_SetRenderDrawColor(renderer, 255, 0, 89, 255);
         SDL_RenderRects(renderer, ATLAS_RECT, ARRAY_LENGTH(ATLAS_RECT));
 
         SDL_RenderPresent(renderer);
