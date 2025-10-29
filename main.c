@@ -13,6 +13,11 @@ static SDL_Texture *atlas_texture = 0;
 #define WIDTH 640
 #define HEIGHT 480
 
+#include <stdio.h>
+void imp_assert(char* err) {
+  printf("%s", err);
+}
+
 #include "imp.h"
 
 #include "atlas.h"
@@ -89,11 +94,11 @@ int main(int argc, char* argv[]) {
     imp_plot *p = imp_plot_start(&imp, (imp_plot_params){ (imp_text){imp_strl("Plot 1")}, (imp_r2){ 200, 200, 200, 200 }} );
 
     #define N 1000
-    float t[N];
-    float y1[N];
+    uint64_t t[N];
+    double y1[N];
     
-    imp_plot_x(p, (imp_data){ IMP_U64, &t, N, .name="time"} );
-    imp_plot_y(p, (imp_data){ IMP_U64, &y1, .name="y1"} );
+    imp_plot_x(p, (imp_data){ imp_strl("time"), IMP_U64, &t, N });
+    imp_plot_y(p, (imp_data){ imp_strl("y1"), IMP_F64, &y1 });
 
     SDL_RenderPresent(renderer);
   }

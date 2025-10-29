@@ -12,6 +12,7 @@ cache data is:
 
 
 LONG-TERM:
+- C11 _Generic Macros for plotting data in C
 - 3D plots
 
 */
@@ -29,6 +30,10 @@ LONG-TERM:
 #else
 #define STRUCT(type) (type)
 #define STRUCT_ZERO(type) (type){0}
+#endif
+
+#ifndef IMP_ASSERT
+#define IMP_ASSERT(cond, ...) do { if (!(cond)) { imp_assert("" __FILE__ "%d: assert " #cond " failed!\n" #__VA_ARGS__); return 0; }} while(0)
 #endif
 
 typedef struct imp_str {
@@ -118,14 +123,42 @@ typedef struct imp_plot_params imp_plot_params;
 typedef struct imp_plot imp_plot;
 typedef struct imp_draw imp_draw;
 
+// this seems less straightforward then a normal enum
+// but flags make it easier to make generic code for this.
 enum imp_data_type {
-  IMP_NONE, // err
-  IMP_F32,
-  // TODO(lf) more types, all standard float and s/u int, + fn ptr
-  // IMP_F64,
-  IMP_U64,
+  _IMP_NONE = 0, // err
 
-  IMP_DATA_TYPES
+  // building blocks
+  // mutually exclusive size flags
+  // this is designed so (type & _IMP_SIZE_MASK) == sizeof(data)
+  // and is valid iff one bit in size mask is set
+  _IMP_SIZE_8  = (1 << 0),
+  _IMP_SIZE_16 = (1 << 1),
+  _IMP_SIZE_32 = (1 << 2),
+  _IMP_SIZE_64 = (1 << 3),
+  _IMP_SIZE_MASK = ((1 << 4)-1),
+
+  // type is signed
+  _IMP_SIGNED = (1 << 4),
+
+  // type is floating point
+  _IMP_IEEE754 = (1 << 5),
+
+  _IMP_DATA_TYPE_MASK = ((1 << 6)-1),
+
+  // usable data types
+  IMP_F32  = (_IMP_SIZE_32 | _IMP_IEEE754),
+  IMP_F64  = (_IMP_SIZE_64 | _IMP_IEEE754),
+
+  IMP_S8   = (_IMP_SIZE_8 | _IMP_SIGNED),
+  IMP_S16  = (_IMP_SIZE_16 | _IMP_SIGNED),
+  IMP_S32  = (_IMP_SIZE_32 | _IMP_SIGNED),
+  IMP_S64  = (_IMP_SIZE_64 | _IMP_SIGNED),
+  
+  IMP_U8   = _IMP_SIZE_8,
+  IMP_U16  = _IMP_SIZE_16,
+  IMP_U32  = _IMP_SIZE_32,
+  IMP_U64  = _IMP_SIZE_64,
 };
 
 enum imp_data_flags {
@@ -141,17 +174,17 @@ enum imp_style_flags {
 
 struct imp_data {
   // core
+  imp_str name;
   uint32_t type;
-  void *data; // data
-  int n;
-  int stride; // space in bytes between values in array at *data, 0 = sizeof(type)
+  void *ptr;
+  uint32_t n;
+  uint32_t stride; // space in bytes between values in array at *data, 0 = sizeof(type)
   uint32_t flags;
   uint32_t hash;
 
   // decimation type TODO(lf)
 
   // style
-  imp_str name;
   imp_cf color;
   uint32_t style;
 
@@ -165,7 +198,8 @@ struct imp_plot_params {
   imp_r2 screen; // location in screen-ref
   imp_r2 view; // target view rectangle, data-ref
 
-  uint32_t default_data_flags;
+  uint32_t default_flags;
+  uint32_t default_style;
   uint32_t hash;
 };
 
@@ -175,8 +209,8 @@ struct imp_plot {
   imp_r2 _view; // current real view
   imp_v2 last_mouse;
   
-  int x_series;
-  int y_series;
+  uint32_t x_series;
+  uint32_t y_series;
 
   // internal
   imp_data *first_x; 
@@ -192,7 +226,7 @@ struct imp_context {
   imp_arena mem_string; // storing strings used in rendering ()
   imp_arena mem_cache; // storing caches of plot data (rec: proportional to n plots * plot w * plot h)
 
-  int plots;
+  uint32_t plots;
   imp_plot *first_plot;
   imp_plot *free_plot;
 };
@@ -200,7 +234,7 @@ struct imp_context {
 // user-defined functions
 imp_v2 imp_measure_text(imp_text txt);
 imp_v2 imp_render_text(imp_text txt);
-void imp_assert(imp_str error);
+void imp_assert(char *error);
 
 // API
 struct imp_draw {
@@ -269,9 +303,14 @@ static imp_plot *_imp_get_plot(imp_context *context, uint32_t hash) {
 
 imp_plot *imp_plot_start(imp_context *context, imp_plot_params p) {
   // TODO check that user actually passed required params like title, size
-  // TODO fill in default params where possible
-  if (!p.default_data_flags) {
-    p.default_data_flags |= IMP_LINES;
+  IMP_ASSERT(context != 0, "context should not be null!\n");
+  IMP_ASSERT((p.title.s.len != 0 && p.title.s.str != 0) || (p.hash != 0),
+    "plot title or hash must be set to uniquely identify plot!\n"
+  );
+  
+  // fill in default params where possible
+  if (!p.default_style) {
+    p.default_style |= IMP_LINES;
   }
 
   p.hash = p.hash? p.hash : str_hash_fnv1a(p.title.s, 0);
@@ -285,13 +324,39 @@ imp_plot *imp_plot_start(imp_context *context, imp_plot_params p) {
 }
 
 imp_data *_imp_get_data(imp_plot *p, imp_data *d) {
+  // validation
+  uint32_t size = d->type & _IMP_SIZE_MASK;
+  IMP_ASSERT(size != 0 && (size & (size-1)) == 0, 
+    "invalid data type!\n" 
+    "set one of _IMP_SIZE_(8|16|32|64).\n"
+  );
+  IMP_ASSERT(!(((d->type & _IMP_IEEE754) > 0) && ((d->type & _IMP_SIGNED))),
+    "invalid data type!\n"
+    "set only one of _IMP_IEEE754 or _IMP_SIGNED"
+  );
+  IMP_ASSERT(d->ptr != 0 || d->n == 0, 
+    "null pointer for data array with non-zero size!\n"
+  );
+  IMP_ASSERT(d->ptr != 0 || d->n == 0, 
+    "null pointer for data array with non-zero size!\n"
+  );
+  IMP_ASSERT((d->name.len != 0 && d->name.str != 0) || (d->hash != 0),
+    "data name or hash must be set to uniquely identify data!\n"
+  );
+  
+  // set defaults
+  d->stride = d->stride? d->stride : size; // if stride not set, assume densely packed array
+
+  // compute hash
   imp_data **first; int *count;
   if (d->_x) {
     first = &p->first_y;
     count = &p->y_series;
+    IMP_ASSERT(d->n == d->_x->n, "data->n (number of elements) for y must equal x!");
   } else {
     first = &p->first_x;
     count = &p->x_series;
+    IMP_ASSERT(d->n != 0, "data->n (number of elements) must be set for x!");
   }
   d->hash = d->hash? d->hash : str_hash_fnv1a(d->name, p->params.hash);
   
@@ -309,33 +374,38 @@ imp_data *_imp_get_data(imp_plot *p, imp_data *d) {
   } else {
     last->_next = data;
   }
-  (*count)++;
+  if (data) {
+    (*count)++;
+    *data = *d;
+  }
   return data;
 }
 
 imp_data *imp_plot_x(imp_plot *p, imp_data x) {
-    if (!p) return 0;
-    imp_data *d = _imp_get_data(p, &x);
-    if (d) {
-      *d = x;
-      p->last_x = d;
-    }
+  IMP_ASSERT(p != 0, "plot should not be null!\n");
+  
+  imp_data *d = _imp_get_data(p, &x);
+  if (d) {
+    p->last_x = d;
+  }
+  return d;
 }
 
 imp_data *imp_plot_y(imp_plot *p, imp_data y) {
-    if (!p) return 0;
-    // TODO fill in defaults for y
+  IMP_ASSERT(p != 0, "plot should not be null!\n");
+  
+  y.flags = y.flags? y.flags : p->params.default_flags;
+  y.style = y.style? y.style : p->params.default_style;
 
-    // TODO alloc decimation buffer for data, if n > p.width
-    // nvm should happen when drawing I think
-    
-    // TODO ASSERT that there is an x and that this vaguely matches it
-    // y->_x
-    y._x = p->last_x;
+  // TODO alloc decimation buffer for data, if n > p.width
+  // nvm should happen when drawing I think
+  
+  IMP_ASSERT(p->last_x != 0, 
+    "y data must have x data already set!\n"
+    "call imp_plot_x before imp_plot_y.\n"
+  );
+  y._x = p->last_x;
 
-    imp_data *d = _imp_get_data(p, &y);
-    if (d) {
-      *d = y;
-    }
+  return  _imp_get_data(p, &y);
 }
 
