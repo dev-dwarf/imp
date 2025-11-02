@@ -337,9 +337,6 @@ imp_data *_imp_get_data(imp_plot *p, imp_data *d) {
   IMP_ASSERT(d->ptr != 0 || d->n == 0, 
     "null pointer for data array with non-zero size!\n"
   );
-  IMP_ASSERT(d->ptr != 0 || d->n == 0, 
-    "null pointer for data array with non-zero size!\n"
-  );
   IMP_ASSERT((d->name.len != 0 && d->name.str != 0) || (d->hash != 0),
     "data name or hash must be set to uniquely identify data!\n"
   );
@@ -405,6 +402,7 @@ imp_data *imp_plot_y(imp_plot *p, imp_data y) {
     "call imp_plot_x before imp_plot_y.\n"
   );
   y._x = p->last_x;
+  y.n = y.n ? y.n : y._x->n;
 
   return  _imp_get_data(p, &y);
 }
