@@ -60,11 +60,14 @@ int main(int argc, char* argv[]) {
 
   // TODO better way to init plots that makes it more obvious 
   // what you have to start
-  imp_context imp = {};
-  imp.mem_cache.size = 10*1024*1024;
-  imp.mem_cache.mem = malloc(imp.mem_cache.size);
+  imp_ctx imp = {};
   imp.mem_string.size = 16*1024;
   imp.mem_string.mem = malloc(imp.mem_string.size);
+  imp.mem_struct.size = 16*1024;
+  imp.mem_struct.mem = malloc(imp.mem_struct.size);
+  imp.mem_cache.size = 10*1024*1024;
+  imp.mem_cache.mem = malloc(imp.mem_cache.size);
+  
   imp.input.screen.w = WIDTH;
   imp.input.screen.h = HEIGHT; 
 
@@ -91,7 +94,10 @@ int main(int argc, char* argv[]) {
     SDL_FRect r = {0, 0, ATLAS_WIDTH, ATLAS_HEIGHT};
     SDL_RenderTexture(renderer, atlas_texture, &r, &r);
     
-    imp_plot *p = imp_plot_start(&imp, (imp_plot_params){ (imp_text){imp_strl("Plot 1")}, (imp_r2){ 200, 200, 200, 200 }} );
+    imp_plot *p = imp_plot_start(&imp, (imp_plot_params){ 
+      (imp_text){imp_strl("Plot 1")}, 
+      (imp_r2){ 200, 200, 200, 200 },
+    });
 
     #define N 1000
     uint64_t t[N];
@@ -99,6 +105,25 @@ int main(int argc, char* argv[]) {
     
     imp_plot_x(p, (imp_data){ imp_strl("time"), IMP_U64, &t, N });
     imp_plot_y(p, (imp_data){ imp_strl("y1"), IMP_F64, &y1 });
+
+    for (imp_draw *cmd; cmd = imp_next_draw(&imp); ) {
+      ASSERT_SDL(SDL_SetRenderDrawColorFloat(renderer, cmd->color.r, cmd->color.g, cmd->color.b, cmd->color.a));
+      
+      switch (cmd->type) {
+      case IMP_DRAW_RECTS: { 
+        ASSERT_SDL(SDL_RenderFillRects(renderer, (SDL_FRect *) cmd->rect, cmd->count));
+      } break;
+      case IMP_DRAW_LINES: { 
+      
+      } break;
+      case IMP_DRAW_STRIP: { 
+      
+      } break;
+      case IMP_DRAW_TEXT: { 
+      
+      } break;
+      }
+    }
 
     SDL_RenderPresent(renderer);
   }

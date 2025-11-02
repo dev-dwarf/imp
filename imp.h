@@ -18,6 +18,7 @@ LONG-TERM:
 */
 
 #include <stdint.h>
+#include <string.h> // memset, memcmp
 
 #define ARRAY_LENGTH(A) (sizeof(A)/sizeof(*(A)))
 
@@ -60,7 +61,6 @@ typedef struct imp_text {
   imp_str s;
   imp_v2 scale;
   imp_v2 position;
-  imp_cf c;
 } imp_text;
 
 typedef struct imp_input {
@@ -98,6 +98,7 @@ static inline uintptr_t _imp_next_align(uintptr_t ptr, uint32_t align) {
 }
 
 void *imp_arena_take(imp_arena *a, uint32_t size, uint32_t align) { 
+  align = align? align : sizeof(void*);
   uintptr_t p = _imp_next_align((uintptr_t) (a->mem + a->used), align);
   uintptr_t new_used = p + size - ((uintptr_t) a->mem);
   if (new_used <= a->size) {
@@ -107,17 +108,20 @@ void *imp_arena_take(imp_arena *a, uint32_t size, uint32_t align) {
       // a->commit_fun(a->mem, new_commit - ((uintptr_t) a->mem));
     // }
     a->used = new_used;
+
+    memset((void*) p, 0, size);
     return (void*) p;
   }
   return 0;
 }
+
 void *imp_arena_reset(imp_arena *a, uint32_t size) {
   // TODO virtual mem
-  a->used = 0;
+  a->used = size;
 }
 
 
-typedef struct imp_context imp_context;
+typedef struct imp_ctx imp_ctx;
 typedef struct imp_data imp_data;
 typedef struct imp_plot_params imp_plot_params;
 typedef struct imp_plot imp_plot;
@@ -162,8 +166,18 @@ enum imp_data_type {
 };
 
 enum imp_data_flags {
-  IMP_NOT_SERIES      = (1 << 1), // data is not a time series / x is not monotonic
-  // IMP_REVERSED     = (1 << x), // data is in reverse sorted order TODO(lf)
+  IMP_NOT_SERIES        = (1 << 1), // data is not a time series / x is not monotonic
+  // IMP_REVERSED       = (1 << x), // data is in reverse sorted order TODO(lf)
+
+  // When there are many more input points than output pixels,
+  // imp will aggregate the data based on the selected settings.
+  IMP_AGG_MAX           = (1 << 28),
+  IMP_AGG_MIN           = (1 << 29),
+  IMP_AGG_MEAN          = (1 << 30),
+  IMP_AGG_MM            = IMP_AGG_MAX | IMP_AGG_MIN, // per x pixel, draw y line between min/max
+  IMP_AGG_MMM           = IMP_AGG_MM | IMP_AGG_MEAN, // draw color_alt between min/max, color at mean
+  
+
 };
 
 enum imp_style_flags {
@@ -171,6 +185,7 @@ enum imp_style_flags {
   IMP_LINES_FILL      = (1 << 1), // fill area under (or to reference) lines
   IMP_MARKERS         = (1 << 2), // show markers at each point
 };
+
 
 struct imp_data {
   // core
@@ -186,6 +201,7 @@ struct imp_data {
 
   // style
   imp_cf color;
+  imp_cf color_alt;
   uint32_t style;
 
   // internal
@@ -205,7 +221,7 @@ struct imp_plot_params {
 
 struct imp_plot {
   imp_plot_params params;
-  imp_context *context;
+  imp_ctx *ctx;
   imp_r2 _view; // current real view
   imp_v2 last_mouse;
   
@@ -221,14 +237,19 @@ struct imp_plot {
   imp_plot *_next;
 };
 
-struct imp_context {
+struct imp_ctx {
   imp_input input;
   imp_arena mem_string; // storing strings used in rendering ()
-  imp_arena mem_cache; // storing caches of plot data (rec: proportional to n plots * plot w * plot h)
+  imp_arena mem_struct; // storing imp structs (rec: scale with to n data series * n plot)
+  imp_arena mem_cache; // storing caches of plot data (rec: scale with n data series * n plot * plot w * plot h)
 
   uint32_t plots;
   imp_plot *first_plot;
   imp_plot *free_plot;
+
+  uint32_t _cache_save;
+  imp_draw *_next_cmd;
+  imp_draw *_last_cmd;
 };
 
 // user-defined functions
@@ -237,22 +258,73 @@ imp_v2 imp_render_text(imp_text txt);
 void imp_assert(char *error);
 
 // API
-struct imp_draw {
-  // TODO
+enum imp_draw_types {
+  IMP_DRAW_NONE = 0,
+  IMP_DRAW_RECTS, // render 1 or more filled rectangles
+  IMP_DRAW_LINES, // render 1 or more connected line segments
+  IMP_DRAW_STRIP, // render 1 or more connected triangles
+  IMP_DRAW_TEXT, // render 1 or more 
+  
+  IMP_DRAW_TYPES
 };
+typedef struct imp_draw {
+  struct imp_draw *next;
+  imp_cf color;
+  enum imp_draw_types type;
+  int count;
+  uint32_t _cap; // allocated count
+  uint32_t _used; // cache mem used marker, for building commands
+  union {
+    imp_r2 rect[1];
+    imp_text text[1];
+    imp_v2 point[1]; // used for verts and lines
+  } 
+} imp_draw;
 
-void imp_context_update(imp_context *context, imp_input input);
-int imp_next_draw(imp_context *context, imp_draw *cmd); // draw undrawn plots
+void _imp_push_cmd(imp_ctx *ctx, imp_draw *cmd) {
+  if (!ctx->_last_cmd) {
+    ctx->_next_cmd = cmd;
+  } else {
+    ctx->_last_cmd->next = cmd;
+  }
+  ctx->_last_cmd = cmd; 
+}
+
+void _imp_push_rect(imp_ctx *ctx, imp_r2 rect, imp_cf color) {
+  imp_draw *cmd = ctx->_last_cmd;
+  if (cmd && (cmd->_used == ctx->mem_cache.used)
+  && (cmd->type == IMP_DRAW_RECTS)
+  && (memcmp(&cmd->color, &color, sizeof(color)) == 0)) {
+    // append rec to previous cmd
+    if (imp_arena_take(&ctx->mem_cache, sizeof(imp_r2), 1)) {
+      cmd->rect[cmd->count++] = rect;
+      cmd->_used = ctx->mem_cache.used;
+    }
+  } else {
+    if (cmd = (imp_draw *) imp_arena_take(&ctx->mem_cache, sizeof(imp_draw), 0)) {
+      cmd->type = IMP_DRAW_RECTS;
+      cmd->color = color;
+      cmd->count = 1;
+      cmd->rect[0] = rect;
+      cmd->_used = ctx->mem_cache.used;
+      _imp_push_cmd(ctx, cmd);
+    }
+  }
+
+}
+
+void imp_ctx_update(imp_ctx *ctx, imp_input input);
+imp_draw *imp_next_draw(imp_ctx *ctx); // draw undrawn plots
 
 
-imp_plot *imp_plot_start(imp_context *context, imp_plot_params p);
+imp_plot *imp_plot_start(imp_ctx *ctx, imp_plot_params p);
 imp_data *imp_plot_x(imp_plot *p, imp_data x);
 imp_data *imp_plot_y(imp_plot *p, imp_data y);
 
 /* usage
 
-// .. init context ..
-imp_context *imp;
+// .. init ctx ..
+imp_ctx *imp;
 
 imp_plot *p = imp_plot_start(&imp, (imp_plot) { .screen.w = 640, .screen.h = 360, .title = "test" });
 imp_plot_x(&p, (imp_data){ IMP_U64, &t, 1000, .name="time"} );
@@ -260,7 +332,7 @@ imp_plot_y(&p, (imp_data){ IMP_F32, &y1, .name = "y1" } );
 
 
 // .. later ..
-// draw everything in context
+// draw everything in ctx
 
 for (imp_draw cmd; imp_next_draw(&imp, &cmd); ) {
   // handle drawing rotated, textured rects
@@ -279,31 +351,31 @@ uint32_t str_hash_fnv1a(imp_str s, uint32_t current) {
     return hash;
 }
 
-static imp_plot *_imp_get_plot(imp_context *context, uint32_t hash) {
+static imp_plot *_imp_get_plot(imp_ctx *ctx, uint32_t hash) {
   // search ll for new plot
   imp_plot *plot, *last_plot = 0;
-  for (plot = context->first_plot; plot; plot = plot->_next) {
+  for (plot = ctx->first_plot; plot; plot = plot->_next) {
     if (plot->params.hash == hash) {
       return plot;
     }
     last_plot = plot;
   }
   // allocate new plot
-  plot = (imp_plot*) imp_arena_take(&context->mem_cache, sizeof(imp_plot), 8);
+  plot = (imp_plot*) imp_arena_take(&ctx->mem_struct, sizeof(imp_plot), 8);
   if (!last_plot) {
-    context->first_plot = plot;
+    ctx->first_plot = plot;
   } else {
     last_plot->_next = plot;
   }
   if (plot) {
-    context->plots++;
+    ctx->plots++;
   }
   return plot;
 }
 
-imp_plot *imp_plot_start(imp_context *context, imp_plot_params p) {
+imp_plot *imp_plot_start(imp_ctx *ctx, imp_plot_params p) {
   // TODO check that user actually passed required params like title, size
-  IMP_ASSERT(context != 0, "context should not be null!\n");
+  IMP_ASSERT(ctx != 0, "ctx should not be null!\n");
   IMP_ASSERT((p.title.s.len != 0 && p.title.s.str != 0) || (p.hash != 0),
     "plot title or hash must be set to uniquely identify plot!\n"
   );
@@ -315,10 +387,10 @@ imp_plot *imp_plot_start(imp_context *context, imp_plot_params p) {
 
   p.hash = p.hash? p.hash : str_hash_fnv1a(p.title.s, 0);
 
-  imp_plot *plot = _imp_get_plot(context, p.hash);
+  imp_plot *plot = _imp_get_plot(ctx, p.hash);
   if (plot != 0) {
     plot->params = p;
-    plot->context = context;
+    plot->ctx = ctx;
   }
   return plot;
 }
@@ -365,7 +437,7 @@ imp_data *_imp_get_data(imp_plot *p, imp_data *d) {
     last = data;
   }
   
-  data = (imp_data*) imp_arena_take(&p->context->mem_cache, sizeof(imp_data), 8);
+  data = (imp_data*) imp_arena_take(&p->ctx->mem_struct, sizeof(imp_data), 8);
   if (!last) {
     *first = data;
   } else {
@@ -405,5 +477,78 @@ imp_data *imp_plot_y(imp_plot *p, imp_data y) {
   y.n = y.n ? y.n : y._x->n;
 
   return  _imp_get_data(p, &y);
+}
+
+imp_draw * imp_next_draw(imp_ctx *ctx) {
+  // commands already generated, just keep outputting from array
+  if (!ctx->_last_cmd) {
+    imp_plot *p = ctx->first_plot;
+  
+    
+    // for (imp_plot *p = ctx->first_plot; p; p = p->next) {
+      
+    // }
+
+    // TODO(lf) caching
+    // NOTE(lf) for now just dont cache, we need to develop and test
+    // the full redraw case anyway, dont put cart before horse
+    // allocate memory for aggregating data for each plot
+      // mem does not need to be allocated again if size didnt change
+      // if it did, reallocate
+      // may need to garbage collect if cache is oom, which should be fine
+
+    // save cache state, because draw commands will come next
+    // ctx->_cache_save = mem_cache
+
+    // what busts a cache:
+      // mem:
+      // - plot screen / output size change
+      // - 
+      // data / cmds:
+      // - data updates
+      //   - can be kept minimal for certain types of plots
+      // - view changes (pan / zoom)
+      
+    // for each plot, do draw commands 
+
+
+    // WARN for now just clear cache always
+    imp_arena_reset(&ctx->mem_cache, 0);
+
+    
+    imp_cf white = STRUCT(imp_cf){ 1.0, 1.0, 1.0, 1.0 };
+    imp_cf red = STRUCT(imp_cf) { 1.0, 0.0, 1.0, 1.0 };
+
+    imp_r2 r = p->params.screen;
+
+    _imp_push_rect(ctx, r, white);
+
+    float o = r.w * 0.1;
+    r.x += o;
+    r.w *= 0.6;
+
+    r.y += r.h * 0.1;
+    r.h *= 0.8;
+
+    
+    r.w *= 0.5;
+
+    _imp_push_rect(ctx, r, red);
+    
+    r.x += r.w + o*2;
+    _imp_push_rect(ctx, r, red);
+  }
+
+
+  // commands generated, output from array
+  imp_draw *out = ctx->_next_cmd;
+  if (out) {
+    ctx->_next_cmd = out->next;
+    IMP_ASSERT(ctx->_next_cmd || out == ctx->_last_cmd, "last command must match!");
+  } else {
+    ctx->_last_cmd = 0;
+  }
+  return out;
+
 }
 
