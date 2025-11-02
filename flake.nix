@@ -13,9 +13,11 @@
         version = "0.0.0";
         src = ./.;
         buildInputs = [ pkgs.sdl3 ];
+        allowSubstitutes = false;
+        dontStrip = true;
         buildPhase = ''
           mkdir -p $out/bin
-          ${pkgs.stdenv.cc}/bin/cc main.c -o $out/bin/imp-sdl3 -lSDL3 -lm
+          ${pkgs.stdenv.cc}/bin/cc main.c -o $out/bin/imp-sdl3 -lSDL3 -lm -g -Og
         '';
       });
 
