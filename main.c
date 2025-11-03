@@ -114,12 +114,12 @@ int main(int argc, char* argv[]) {
       STRUCT(imp_r2){ (imp.input.screen.w-imp.input.screen.h)/2, 0, imp.input.screen.h, imp.input.screen.h },
     });
 
-    #define N 1000
+    #define N 50
     double t[N];
     double y1[N];
 
     for (int i = 0; i < N; i++) {
-      t[i] = 0.001 * i;
+      t[i] = 0.02 * i;
       y1[i] = sin ( 5 * (2 * M_PI * t[i]) );
     }
     

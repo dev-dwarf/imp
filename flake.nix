@@ -20,7 +20,7 @@
         # to use gcc -E to preprocess source and then compile that
         buildPhase = ''
           mkdir -p $out/bin
-          ${pkgs.stdenv.cc}/bin/cc -std=C99 main.c -o $out/bin/imp-sdl3 -lSDL3 -lm -g -Og -Wall -Wextra -Wpedantic
+          ${pkgs.stdenv.cc}/bin/cc -std=c99 main.c -o $out/bin/imp-sdl3 -lSDL3 -lm -g -Og -Wall -Wextra -Wpedantic
         '';
       });
 
