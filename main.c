@@ -61,7 +61,7 @@ int main(int argc, char* argv[]) {
   SDL_Palette *atlas_palette;
   ASSERT_SDL(atlas_surface = SDL_CreateSurfaceFrom(ATLAS_WIDTH, ATLAS_HEIGHT, SDL_PIXELFORMAT_INDEX8, ATLAS_DATA, ATLAS_WIDTH));
   ASSERT_SDL(atlas_palette = SDL_CreateSurfacePalette(atlas_surface));
-  for (int i = 0; i < 256; i++) { atlas_palette->colors[i] = STRUCT(SDL_Color, (uint8_t) i, (uint8_t) i, (uint8_t) i, (uint8_t) i); }
+  for (int i = 0; i < 256; i++) { atlas_palette->colors[i] = STRUCT(SDL_Color){(uint8_t) i, (uint8_t) i, (uint8_t) i, (uint8_t) i}; }
   ASSERT_SDL(SDL_SetSurfacePalette(atlas_surface, atlas_palette));
   ASSERT_SDL(atlas_texture = SDL_CreateTextureFromSurface(renderer, atlas_surface));
   ASSERT_SDL(SDL_SetTextureBlendMode(atlas_texture, SDL_BLENDMODE_BLEND_PREMULTIPLIED));
@@ -109,10 +109,10 @@ int main(int argc, char* argv[]) {
     SDL_FRect r = {0, 0, ATLAS_WIDTH, ATLAS_HEIGHT};
     SDL_RenderTexture(renderer, atlas_texture, &r, &r);
     
-    imp_plot *p = imp_plot_start(&imp, STRUCT(imp_plot_params, 
-      STRUCT(imp_text, imp_strl("Plot 1")), 
-      STRUCT(imp_r2, (imp.input.screen.w-imp.input.screen.h)/2, 0, imp.input.screen.h, imp.input.screen.h),
-    ));
+    imp_plot *p = imp_plot_start(&imp, STRUCT(imp_plot_params){ 
+      STRUCT(imp_text){ imp_strl("Plot 1") }, 
+      STRUCT(imp_r2){ (imp.input.screen.w-imp.input.screen.h)/2, 0, imp.input.screen.h, imp.input.screen.h },
+    });
 
     #define N 1000
     double t[N];
@@ -123,8 +123,8 @@ int main(int argc, char* argv[]) {
       y1[i] = sin ( 5 * (2 * M_PI * t[i]) );
     }
     
-    imp_plot_x(p, STRUCT(imp_data, imp_strl("time"), IMP_F64, &t, N ));
-    imp_plot_y(p, STRUCT(imp_data, imp_strl("y1"), IMP_F64, &y1 ));
+    imp_plot_x(p, STRUCT(imp_data){ imp_strl("time"), IMP_F64, &t, N });
+    imp_plot_y(p, STRUCT(imp_data){ imp_strl("y1"), IMP_F64, &y1 });
 
     for (imp_draw *cmd; (cmd = imp_next_draw(&imp)); ) {
       ASSERT_SDL(SDL_SetRenderDrawColorFloat(renderer, cmd->color.r, cmd->color.g, cmd->color.b, cmd->color.a));

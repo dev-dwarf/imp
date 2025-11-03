@@ -27,10 +27,10 @@ LONG-TERM:
 #define MAX(a,b) (((a)>(b))?(a):(b))
 
 #ifdef __cplusplus
-#define STRUCT(type, ...) type { __VA_ARGS__ }
+#define STRUCT(type) type
 #define STRUCT_ZERO(type) {}
 #else
-#define STRUCT(type, ...) (type) { __VA_ARGS__ }
+#define STRUCT(type) (type)
 #define STRUCT_ZERO(type) (type){0}
 #endif
 
@@ -42,7 +42,7 @@ typedef struct imp_str {
   char *str;
   int len;
 } imp_str;
-#define imp_strl(literal) STRUCT(imp_str, (char*) literal, sizeof(literal"") - 1)
+#define imp_strl(literal) STRUCT(imp_str){ (char*) literal, sizeof(literal"") - 1}
 
 typedef struct imp_v2 {
   float x, y; 
@@ -537,9 +537,9 @@ imp_draw * imp_next_draw(imp_ctx *ctx) {
     imp_arena_reset(&ctx->mem_cache, 0);
 
     
-    imp_cf white = STRUCT(imp_cf, 1.0, 1.0, 1.0, 1.0 );
-    imp_cf red = STRUCT(imp_cf, 1.0, 0.0, 0.0, 1.0 );
-    imp_cf blue = STRUCT(imp_cf, 0.0, 0.0, 1.0, 1.0 );
+    imp_cf white = STRUCT(imp_cf){ 1.0, 1.0, 1.0, 1.0 };
+    imp_cf red = STRUCT(imp_cf){ 1.0, 0.0, 0.0, 1.0 };
+    imp_cf blue = STRUCT(imp_cf){ 0.0, 0.0, 1.0, 1.0 };
     
 
     imp_r2 r = p->params.screen;
@@ -595,10 +595,10 @@ imp_draw * imp_next_draw(imp_ctx *ctx) {
         if (x[i] >= r) {
           // add points for current x
           if (n > 1) { // min + max, 2 points
-            cmd->array.point[cmd->count++] = STRUCT(imp_v2, sx + l / pw, sy + min * yscale);
-            cmd->array.point[cmd->count++] = STRUCT(imp_v2, sx + l / pw, sy + max * yscale);
+            cmd->array.point[cmd->count++] = STRUCT(imp_v2){ sx + l / pw, sy + min * yscale};
+            cmd->array.point[cmd->count++] = STRUCT(imp_v2){ sx + l / pw, sy + max * yscale};
           } else if (n == 1) { // just 1 point
-            cmd->array.point[cmd->count++] = STRUCT(imp_v2, sx + lx / pw, sy + min * yscale);
+            cmd->array.point[cmd->count++] = STRUCT(imp_v2){ sx + lx / pw, sy + min * yscale};
           } // else no points
         
           n = 0;
