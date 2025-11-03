@@ -56,6 +56,10 @@ int main(int argc, char* argv[]) {
   ASSERT_SDL(SDL_Init(SDL_INIT_VIDEO));
   ASSERT_SDL(window = SDL_CreateWindow("IMP SDL3", WIDTH, HEIGHT, SDL_WINDOW_RESIZABLE));
   ASSERT_SDL(renderer = SDL_CreateRenderer(window, NULL));
+  if (!SDL_GL_SetSwapInterval(-1)) {
+    ASSERT_SDL(SDL_GL_SetSwapInterval(1));
+  }
+  
   bool running = true;
 
   SDL_Palette *atlas_palette;
@@ -65,6 +69,7 @@ int main(int argc, char* argv[]) {
   ASSERT_SDL(SDL_SetSurfacePalette(atlas_surface, atlas_palette));
   ASSERT_SDL(atlas_texture = SDL_CreateTextureFromSurface(renderer, atlas_surface));
   ASSERT_SDL(SDL_SetTextureBlendMode(atlas_texture, SDL_BLENDMODE_BLEND_PREMULTIPLIED));
+
 
   // TODO better way to init plots that makes it more obvious 
   // what you have to start
@@ -77,8 +82,9 @@ int main(int argc, char* argv[]) {
   imp.mem_cache.size = 10*1024*1024;
   imp.mem_cache.mem = (uint8_t*) malloc(imp.mem_cache.size);
   
-  
-
+  uint64_t ticks_per_ms = SDL_GetPerformanceFrequency()/1000;
+  uint64_t last_ticks = SDL_GetPerformanceCounter();
+  int time = 0;
   while (running) {
     for (SDL_Event event; SDL_PollEvent(&event); ) {
       switch (event.type) {
@@ -114,14 +120,15 @@ int main(int argc, char* argv[]) {
       STRUCT(imp_r2){ (imp.input.screen.w-imp.input.screen.h)/2, 0, imp.input.screen.h, imp.input.screen.h },
     });
 
-    #define N 50
+    #define N 100000
     double t[N];
     double y1[N];
 
     for (int i = 0; i < N; i++) {
-      t[i] = 0.02 * i;
-      y1[i] = sin ( 5 * (2 * M_PI * t[i]) );
+      t[i] = (1./(float)N) * (i+time);
+      y1[i] = sin ( 5 * (2 * M_PI * t[i]) ) + sin ( 71 * (2 * M_PI * t[i]) ) + sin ( 17 * (2 * M_PI * t[i]) );
     }
+    time++;
     
     imp_plot_x(p, STRUCT(imp_data){ imp_strl("time"), IMP_F64, &t, N });
     imp_plot_y(p, STRUCT(imp_data){ imp_strl("y1"), IMP_F64, &y1 });
@@ -147,6 +154,11 @@ int main(int argc, char* argv[]) {
       case IMP_DRAW_NONE: { } break;
       }
     }
+
+    uint64_t ticks = SDL_GetPerformanceCounter();
+    float ms = (float)(ticks - last_ticks) / (float) ticks_per_ms;
+    last_ticks = ticks;
+    printf("ms: %0.3f\n", ms);
 
     SDL_RenderPresent(renderer);
   }
