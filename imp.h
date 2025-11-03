@@ -15,6 +15,7 @@ LONG-TERM:
 - C11 _Generic Macros for plotting data in C
 - 3D plots
 
+
 */
 
 #include <stdint.h>
@@ -26,10 +27,10 @@ LONG-TERM:
 #define MAX(a,b) (((a)>(b))?(a):(b))
 
 #ifdef __cplusplus
-#define STRUCT(type) type
+#define STRUCT(type, ...) type { __VA_ARGS__ }
 #define STRUCT_ZERO(type) {}
 #else
-#define STRUCT(type) (type)
+#define STRUCT(type, ...) (type) { __VA_ARGS__ }
 #define STRUCT_ZERO(type) (type){0}
 #endif
 
@@ -41,12 +42,10 @@ typedef struct imp_str {
   char *str;
   int len;
 } imp_str;
-#define imp_strl(literal) STRUCT(imp_str){literal, sizeof(literal"") - 1}
+#define imp_strl(literal) STRUCT(imp_str, (char*) literal, sizeof(literal"") - 1)
 
-typedef union imp_v2 {
-  struct { float x, y; }; // x, y point
-  struct { float w, h; }; // width, height size
-  struct { float l, _h; }; // low, high range
+typedef struct imp_v2 {
+  float x, y; 
 } imp_v2;    
 
 typedef struct imp_rect { 
@@ -118,6 +117,7 @@ void *imp_arena_take(imp_arena *a, uint32_t size, uint32_t align) {
 void *imp_arena_reset(imp_arena *a, uint32_t size) {
   // TODO virtual mem
   a->used = size;
+  return 0;
 }
 
 
@@ -255,7 +255,7 @@ struct imp_ctx {
 // user-defined functions
 imp_v2 imp_measure_text(imp_text txt);
 imp_v2 imp_render_text(imp_text txt);
-void imp_assert(char *error);
+void imp_assert(const char *error);
 
 // API
 enum imp_draw_types {
@@ -269,19 +269,19 @@ enum imp_draw_types {
   
   IMP_DRAW_TYPES
 };
-typedef struct imp_draw {
+struct imp_draw {
   struct imp_draw *next;
   imp_cf color;
   enum imp_draw_types type;
   int count;
   uint32_t _cap; // allocated count
   uint32_t _used; // cache mem used marker, for building commands
-  union {
+  union array {
     imp_r2 rect[1];
     imp_text text[1];
     imp_v2 point[1]; // used for verts and lines
-  } 
-} imp_draw;
+  } array;
+};
 
 imp_draw * _imp_push_cmd(imp_ctx *ctx, imp_draw *cmd) {
   if (!ctx->_last_cmd) {
@@ -293,24 +293,25 @@ imp_draw * _imp_push_cmd(imp_ctx *ctx, imp_draw *cmd) {
   return cmd;
 }
 
-void* _imp_push_rect(imp_ctx *ctx, imp_r2 rect, imp_cf color) {
+imp_draw* _imp_push_rect(imp_ctx *ctx, imp_r2 rect, imp_cf color) {
   imp_draw *cmd = ctx->_last_cmd;
   if (cmd && (cmd->_used == ctx->mem_cache.used)
   && (cmd->type == IMP_DRAW_RECTS)
   && (memcmp(&cmd->color, &color, sizeof(color)) == 0)) {
     // append rec to previous cmd
     if (imp_arena_take(&ctx->mem_cache, sizeof(imp_r2), 1)) {
-      cmd->rect[cmd->count++] = rect;
+      cmd->array.rect[cmd->count++] = rect;
       cmd->_used = ctx->mem_cache.used;
+      return cmd;
     } else {
       IMP_ASSERT(0, "mem_cache out of memory!");
     }
   } else {
-    if (cmd = (imp_draw *) imp_arena_take(&ctx->mem_cache, sizeof(imp_draw), 0)) {
+    if ((cmd = (imp_draw *) imp_arena_take(&ctx->mem_cache, sizeof(imp_draw), 0))) {
       cmd->type = IMP_DRAW_RECTS;
       cmd->color = color;
       cmd->count = 1;
-      cmd->rect[0] = rect;
+      cmd->array.rect[0] = rect;
       cmd->_used = ctx->mem_cache.used;
       return _imp_push_cmd(ctx, cmd);
     } else {
@@ -322,7 +323,7 @@ void* _imp_push_rect(imp_ctx *ctx, imp_r2 rect, imp_cf color) {
 imp_draw* _imp_push_lines(imp_ctx *ctx, uint32_t cap, imp_cf color) {
   cap = MAX(cap, 1);
   imp_draw *cmd;
-  if (cmd = (imp_draw *) imp_arena_take(&ctx->mem_cache, sizeof(imp_draw) + (cap-1)*sizeof(imp_v2), 0)) {
+  if ((cmd = (imp_draw *) imp_arena_take(&ctx->mem_cache, sizeof(imp_draw) + (cap-1)*sizeof(imp_v2), 0))) {
     cmd->type = IMP_DRAW_LINES;
     cmd->color = color;
     cmd->_cap = cap;
@@ -437,7 +438,7 @@ imp_data *_imp_get_data(imp_plot *p, imp_data *d) {
   d->stride = d->stride? d->stride : size; // if stride not set, assume densely packed array
 
   // compute hash
-  imp_data **first; int *count;
+  imp_data **first; uint32_t *count;
   if (d->_x) {
     first = &p->first_y;
     count = &p->y_series;
@@ -536,9 +537,9 @@ imp_draw * imp_next_draw(imp_ctx *ctx) {
     imp_arena_reset(&ctx->mem_cache, 0);
 
     
-    imp_cf white = STRUCT(imp_cf){ 1.0, 1.0, 1.0, 1.0 };
-    imp_cf red = STRUCT(imp_cf) { 1.0, 0.0, 0.0, 1.0 };
-    imp_cf blue = STRUCT(imp_cf) { 0.0, 0.0, 1.0, 1.0 };
+    imp_cf white = STRUCT(imp_cf, 1.0, 1.0, 1.0, 1.0 );
+    imp_cf red = STRUCT(imp_cf, 1.0, 0.0, 0.0, 1.0 );
+    imp_cf blue = STRUCT(imp_cf, 0.0, 0.0, 1.0, 1.0 );
     
 
     imp_r2 r = p->params.screen;
@@ -560,7 +561,6 @@ imp_draw * imp_next_draw(imp_ctx *ctx) {
     // r.x += r.w + o*2;
     // _imp_push_rect(ctx, r, red);
 
-    uint32_t plot_n_max = p->first_x->n; // TODO(lf) should be max of all xs
     uint32_t agg_size = 2*p->params.screen.w;
 
     imp_draw *cmd = _imp_push_lines(ctx, agg_size, blue);
@@ -588,16 +588,17 @@ imp_draw * imp_next_draw(imp_ctx *ctx) {
       int n = 0;
       float r = x[0];
       float l = r;
-      float min, max;
+      float min = 0;
+      float max = 0;
       float lx; 
-      for (int i = 0; i < datax->n; ) {
+      for (int i = 0; i < (int) datax->n; ) {
         if (x[i] >= r) {
           // add points for current x
           if (n > 1) { // min + max, 2 points
-            cmd->point[cmd->count++] = STRUCT(imp_v2) { sx + l / pw, sy + min * yscale };
-            cmd->point[cmd->count++] = STRUCT(imp_v2) { sx + l / pw, sy + max * yscale };
+            cmd->array.point[cmd->count++] = STRUCT(imp_v2, sx + l / pw, sy + min * yscale);
+            cmd->array.point[cmd->count++] = STRUCT(imp_v2, sx + l / pw, sy + max * yscale);
           } else if (n == 1) { // just 1 point
-            cmd->point[cmd->count++] = STRUCT(imp_v2) { sx + lx / pw, sy + min * yscale };
+            cmd->array.point[cmd->count++] = STRUCT(imp_v2, sx + lx / pw, sy + min * yscale);
           } // else no points
         
           n = 0;

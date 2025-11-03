@@ -15,9 +15,12 @@
         buildInputs = [ pkgs.sdl3 ];
         allowSubstitutes = false;
         dontStrip = true;
+
+        # if we have to debug hairy macros, change
+        # to use gcc -E to preprocess source and then compile that
         buildPhase = ''
           mkdir -p $out/bin
-          ${pkgs.stdenv.cc}/bin/cc main.c -o $out/bin/imp-sdl3 -lSDL3 -lm -g -Og -Wall -Wextra -Wpedantic
+          ${pkgs.stdenv.cc}/bin/cc -std=C99 main.c -o $out/bin/imp-sdl3 -lSDL3 -lm -g -Og -Wall -Wextra -Wpedantic
         '';
       });
 
