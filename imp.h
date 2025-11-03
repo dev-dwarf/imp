@@ -577,47 +577,76 @@ imp_draw * imp_next_draw(imp_ctx *ctx) {
       double *x = (double *) datax->ptr;
       double *y = (double *) datay->ptr;
 
-      float sx = p->params.screen.x;
-      float sy = p->params.screen.y;
-      float pw = (x[datax->n-1] - x[0]) / p->params.screen.w;
-      float yscale = p->params.screen.h / (1 - (-1));
-      sy += yscale;
-      yscale -= 5;
-      
-      int p = 0;
-      int n = 0;
-      float r = x[0];
-      float l = r;
-      float min = 0;
-      float max = 0;
-      float lx; 
-      for (int i = 0; i < (int) datax->n; ) {
-        if (x[i] >= r) {
-          // add points for current x
-          if (n > 1) { // min + max, 2 points
-            cmd->array.point[cmd->count++] = STRUCT(imp_v2){ sx + l / pw, sy + min * yscale};
-            cmd->array.point[cmd->count++] = STRUCT(imp_v2){ sx + l / pw, sy + max * yscale};
-          } else if (n == 1) { // just 1 point
-            cmd->array.point[cmd->count++] = STRUCT(imp_v2){ sx + lx / pw, sy + min * yscale};
-          } // else no points
-        
-          n = 0;
-          min = INFINITY;
-          max = -INFINITY;
-          p++;
-          l = r;
-          r = x[0] + p*pw;
-        } else {
-          n++;
-          lx = x[i];
-          min = MIN(min, y[i]);
-          max = MAX(max, y[i]);
-          i++;
+      int padding = 15; // padding, in pixels
+
+      float pw = (x[datax->n-1] - x[0]) / (p->params.screen.w - 2*padding);
+
+      {
+        int p = 0;
+        int n = 0;
+        float r = x[0];
+        float min = 0;
+        float max = 0;
+        float lx; 
+        for (int i = 0; i < (int) datax->n; ) {
+          if (x[i] >= r) {
+            // add points for current x
+            if (n > 1) { // min + max, 2 points
+              cmd->array.point[cmd->count++] = STRUCT(imp_v2){ r-0.5*pw, min };
+              cmd->array.point[cmd->count++] = STRUCT(imp_v2){ r-0.5*pw, max };
+            } else if (n == 1) { // just 1 point
+              cmd->array.point[cmd->count++] = STRUCT(imp_v2){ lx, min };
+            } // else no points
+            n = 0;
+            min = INFINITY;
+            max = -INFINITY;
+            p++;
+            r = x[0] + p*pw;
+          } else {
+            n++;
+            lx = x[i];
+            min = MIN(min, y[i]);
+            max = MAX(max, y[i]);
+            i++;
+          }
         }
       }
+
+      // TODO(lf) let user specifically set the yscale,
+      // but otherwise scale it to fit the plot
+
+      // TODO(lf): zoom + pan requires that this be stored across frames and modifiable
+      // TODO(lf): limit aggregated points to what is actually in view
+
+      /* REMAP -> FMA
+        a + (b-a) * (x - d)/(c - d)
+        x * ((b - a)/(c - d)) + (a + (-d)((b - a)/(c - d)))
+        x * xs + xo
+      */
+      float xs = (p->params.screen.w - 2*padding) / (x[datax->n-1] - x[0]);
+      float xo = p->params.screen.x + padding - x[0] * xs;
+      float ys, yo;
+      {
+        float ymin = INFINITY;
+        float ymax = -INFINITY;
+        for (int i = 0; i < (int) cmd->count; i++) {
+          ymin = MIN(ymin, cmd->array.point[i].y);
+          ymax = MAX(ymax, cmd->array.point[i].y);
+        }
+        ys = (p->params.screen.h - 2*padding) / (ymax - ymin);
+        yo = p->params.screen.y + padding - ymin * ys;
+      }
+        
+      for (int i = 0; i < (int) cmd->count; i++) {
+        cmd->array.point[i] = STRUCT(imp_v2) {
+          cmd->array.point[i].x * xs + xo,
+          cmd->array.point[i].y * ys + yo,
+        };
+      }
     }
-    
   }
+
+  
 
 
   // commands generated, output from array
