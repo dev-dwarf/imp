@@ -263,7 +263,9 @@ enum imp_draw_types {
   IMP_DRAW_RECTS, // render 1 or more filled rectangles
   IMP_DRAW_LINES, // render 1 or more connected line segments
   IMP_DRAW_STRIP, // render 1 or more connected triangles
-  IMP_DRAW_TEXT, // render 1 or more 
+  // IMP_DRAW_ICONS, // render 1 or more icons (textured quads)
+  IMP_DRAW_TEXT, // render 1 or more strings
+
   
   IMP_DRAW_TYPES
 };
@@ -281,16 +283,17 @@ typedef struct imp_draw {
   } 
 } imp_draw;
 
-void _imp_push_cmd(imp_ctx *ctx, imp_draw *cmd) {
+imp_draw * _imp_push_cmd(imp_ctx *ctx, imp_draw *cmd) {
   if (!ctx->_last_cmd) {
     ctx->_next_cmd = cmd;
   } else {
     ctx->_last_cmd->next = cmd;
   }
   ctx->_last_cmd = cmd; 
+  return cmd;
 }
 
-void _imp_push_rect(imp_ctx *ctx, imp_r2 rect, imp_cf color) {
+void* _imp_push_rect(imp_ctx *ctx, imp_r2 rect, imp_cf color) {
   imp_draw *cmd = ctx->_last_cmd;
   if (cmd && (cmd->_used == ctx->mem_cache.used)
   && (cmd->type == IMP_DRAW_RECTS)
@@ -299,6 +302,8 @@ void _imp_push_rect(imp_ctx *ctx, imp_r2 rect, imp_cf color) {
     if (imp_arena_take(&ctx->mem_cache, sizeof(imp_r2), 1)) {
       cmd->rect[cmd->count++] = rect;
       cmd->_used = ctx->mem_cache.used;
+    } else {
+      IMP_ASSERT(0, "mem_cache out of memory!");
     }
   } else {
     if (cmd = (imp_draw *) imp_arena_take(&ctx->mem_cache, sizeof(imp_draw), 0)) {
@@ -307,10 +312,25 @@ void _imp_push_rect(imp_ctx *ctx, imp_r2 rect, imp_cf color) {
       cmd->count = 1;
       cmd->rect[0] = rect;
       cmd->_used = ctx->mem_cache.used;
-      _imp_push_cmd(ctx, cmd);
+      return _imp_push_cmd(ctx, cmd);
+    } else {
+      IMP_ASSERT(0, "mem_cache out of memory!");
     }
   }
+}
 
+imp_draw* _imp_push_lines(imp_ctx *ctx, uint32_t cap, imp_cf color) {
+  cap = MAX(cap, 1);
+  imp_draw *cmd;
+  if (cmd = (imp_draw *) imp_arena_take(&ctx->mem_cache, sizeof(imp_draw) + (cap-1)*sizeof(imp_v2), 0)) {
+    cmd->type = IMP_DRAW_LINES;
+    cmd->color = color;
+    cmd->_cap = cap;
+    cmd->_used = ctx->mem_cache.used;
+    return _imp_push_cmd(ctx, cmd);
+  } else {
+    IMP_ASSERT(0, "mem_cache out of memory!");
+  }
 }
 
 void imp_ctx_update(imp_ctx *ctx, imp_input input);
@@ -517,26 +537,85 @@ imp_draw * imp_next_draw(imp_ctx *ctx) {
 
     
     imp_cf white = STRUCT(imp_cf){ 1.0, 1.0, 1.0, 1.0 };
-    imp_cf red = STRUCT(imp_cf) { 1.0, 0.0, 1.0, 1.0 };
+    imp_cf red = STRUCT(imp_cf) { 1.0, 0.0, 0.0, 1.0 };
+    imp_cf blue = STRUCT(imp_cf) { 0.0, 0.0, 1.0, 1.0 };
+    
 
     imp_r2 r = p->params.screen;
 
     _imp_push_rect(ctx, r, white);
 
-    float o = r.w * 0.1;
-    r.x += o;
-    r.w *= 0.6;
+    // float o = r.w * 0.1;
+    // r.x += o;
+    // r.w *= 0.6;
 
-    r.y += r.h * 0.1;
-    r.h *= 0.8;
+    // r.y += r.h * 0.1;
+    // r.h *= 0.8;
 
     
-    r.w *= 0.5;
+    // r.w *= 0.5;
 
-    _imp_push_rect(ctx, r, red);
+    // _imp_push_rect(ctx, r, red);
     
-    r.x += r.w + o*2;
-    _imp_push_rect(ctx, r, red);
+    // r.x += r.w + o*2;
+    // _imp_push_rect(ctx, r, red);
+
+    uint32_t plot_n_max = p->first_x->n; // TODO(lf) should be max of all xs
+    uint32_t agg_size = 2*p->params.screen.w;
+
+    imp_draw *cmd = _imp_push_lines(ctx, agg_size, blue);
+
+    { // aggregation for time series data 
+
+      imp_data *datax = p->first_x;
+      imp_data *datay = p->first_y;
+      
+      // TODO(lf) make this code generic across data types
+      // This is going to be really tough. Honestly dont really know how to do it
+      // without being balls slow or with tons of repeated code throughout this header
+      // maybe macros can save the day?
+      double *x = (double *) datax->ptr;
+      double *y = (double *) datay->ptr;
+
+      float sx = p->params.screen.x;
+      float sy = p->params.screen.y;
+      float pw = (x[datax->n-1] - x[0]) / p->params.screen.w;
+      float yscale = p->params.screen.h / (1 - (-1));
+      sy += yscale;
+      yscale -= 5;
+      
+      int p = 0;
+      int n = 0;
+      float r = x[0];
+      float l = r;
+      float min, max;
+      float lx; 
+      for (int i = 0; i < datax->n; ) {
+        if (x[i] >= r) {
+          // add points for current x
+          if (n > 1) { // min + max, 2 points
+            cmd->point[cmd->count++] = STRUCT(imp_v2) { sx + l / pw, sy + min * yscale };
+            cmd->point[cmd->count++] = STRUCT(imp_v2) { sx + l / pw, sy + max * yscale };
+          } else if (n == 1) { // just 1 point
+            cmd->point[cmd->count++] = STRUCT(imp_v2) { sx + lx / pw, sy + min * yscale };
+          } // else no points
+        
+          n = 0;
+          min = INFINITY;
+          max = -INFINITY;
+          p++;
+          l = r;
+          r = x[0] + p*pw;
+        } else {
+          n++;
+          lx = x[i];
+          min = MIN(min, y[i]);
+          max = MAX(max, y[i]);
+          i++;
+        }
+      }
+    }
+    
   }
 
 

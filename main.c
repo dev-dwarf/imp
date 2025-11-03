@@ -68,8 +68,7 @@ int main(int argc, char* argv[]) {
   imp.mem_cache.size = 10*1024*1024;
   imp.mem_cache.mem = malloc(imp.mem_cache.size);
   
-  imp.input.screen.w = WIDTH;
-  imp.input.screen.h = HEIGHT; 
+  
 
   while (running) {
     for (SDL_Event event; SDL_PollEvent(&event); ) {
@@ -85,6 +84,13 @@ int main(int argc, char* argv[]) {
         break;
       }
     }
+    {
+      int w,h;
+      if (SDL_GetWindowSizeInPixels(window, &w, &h)) {
+        imp.input.screen.w = w;
+        imp.input.screen.h = h;
+      }
+    }
     imp.input.mouse_flags = SDL_GetMouseState(&imp.input.mouse.x, &imp.input.mouse.y);
 
     SDL_SetRenderDrawColor(renderer, 10, 3, 13, 255);
@@ -96,14 +102,19 @@ int main(int argc, char* argv[]) {
     
     imp_plot *p = imp_plot_start(&imp, (imp_plot_params){ 
       (imp_text){imp_strl("Plot 1")}, 
-      (imp_r2){ 200, 200, 200, 200 },
+      (imp_r2){ (imp.input.screen.w-imp.input.screen.h)/2, 0, imp.input.screen.h, imp.input.screen.h },
     });
 
     #define N 1000
-    uint64_t t[N];
+    double t[N];
     double y1[N];
+
+    for (int i = 0; i < N; i++) {
+      t[i] = 0.001 * i;
+      y1[i] = sin ( 5 * (2 * M_PI * t[i]) );
+    }
     
-    imp_plot_x(p, (imp_data){ imp_strl("time"), IMP_U64, &t, N });
+    imp_plot_x(p, (imp_data){ imp_strl("time"), IMP_F64, &t, N });
     imp_plot_y(p, (imp_data){ imp_strl("y1"), IMP_F64, &y1 });
 
     for (imp_draw *cmd; cmd = imp_next_draw(&imp); ) {
@@ -114,7 +125,8 @@ int main(int argc, char* argv[]) {
         ASSERT_SDL(SDL_RenderFillRects(renderer, (SDL_FRect *) cmd->rect, cmd->count));
       } break;
       case IMP_DRAW_LINES: { 
-      
+        SDL_FPoint *points = (SDL_FPoint *) cmd->point;
+        ASSERT_SDL(SDL_RenderLines(renderer, points, cmd->count));
       } break;
       case IMP_DRAW_STRIP: { 
       
