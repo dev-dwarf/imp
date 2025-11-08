@@ -25,6 +25,7 @@ LONG-TERM:
 
 #define MIN(a,b) (((a)<(b))?(a):(b))
 #define MAX(a,b) (((a)>(b))?(a):(b))
+#define ABS(x) ((x) < 0 ? -(x) : (x))
 
 #ifdef __cplusplus
 #define STRUCT(type) type
@@ -590,9 +591,16 @@ imp_draw * imp_next_draw(imp_ctx *ctx) {
           if (x[i] >= x[0]+p*pw) {
             // add points for current x
             if (n > 1) { // min + max, 2 points
-              float px = x[0]+(p-0.5)*pw;
-              cmd->array.point[cmd->count++] = STRUCT(imp_v2){ px, min };
-              cmd->array.point[cmd->count++] = STRUCT(imp_v2){ px, max };
+              float py = cmd->array.point[cmd->count-1].y;
+              float nx = x[0]+(p-0.5)*pw;
+              // make the longest line
+              if (ABS(min - py) > ABS(max - py)) {
+                if (max > py) cmd->array.point[cmd->count++] = STRUCT(imp_v2){ nx, max };
+                cmd->array.point[cmd->count++] = STRUCT(imp_v2){ nx, min };
+              } else {
+                if (min < py) cmd->array.point[cmd->count++] = STRUCT(imp_v2){ nx, min };
+                cmd->array.point[cmd->count++] = STRUCT(imp_v2){ nx, max };
+              }
             } else if (n == 1) { // just 1 point
               cmd->array.point[cmd->count++] = STRUCT(imp_v2){ x[i-1], min };
             } // else no points
