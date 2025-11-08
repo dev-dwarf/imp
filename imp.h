@@ -584,27 +584,24 @@ imp_draw * imp_next_draw(imp_ctx *ctx) {
       {
         int p = 0;
         int n = 0;
-        float r = x[0];
         float min = 0;
         float max = 0;
-        float lx; 
         for (int i = 0; i < (int) datax->n; ) {
-          if (x[i] >= r) {
+          if (x[i] >= x[0]+p*pw) {
             // add points for current x
             if (n > 1) { // min + max, 2 points
-              cmd->array.point[cmd->count++] = STRUCT(imp_v2){ r-0.5*pw, min };
-              cmd->array.point[cmd->count++] = STRUCT(imp_v2){ r-0.5*pw, max };
+              float px = x[0]+(p-0.5)*pw;
+              cmd->array.point[cmd->count++] = STRUCT(imp_v2){ px, min };
+              cmd->array.point[cmd->count++] = STRUCT(imp_v2){ px, max };
             } else if (n == 1) { // just 1 point
-              cmd->array.point[cmd->count++] = STRUCT(imp_v2){ lx, min };
+              cmd->array.point[cmd->count++] = STRUCT(imp_v2){ x[i-1], min };
             } // else no points
             n = 0;
             min = INFINITY;
             max = -INFINITY;
             p++;
-            r = x[0] + p*pw;
           } else {
             n++;
-            lx = x[i];
             min = MIN(min, y[i]);
             max = MAX(max, y[i]);
             i++;
