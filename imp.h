@@ -27,6 +27,12 @@ LONG-TERM:
 #define MAX(a,b) (((a)>(b))?(a):(b))
 #define ABS(x) ((x) < 0 ? -(x) : (x))
 
+#if defined(__GNUC__)
+#define imp_unreachable __builtin_unreachable()
+#elif defined(_MSC_VER)
+#define imp_unreachable __assume(false)
+#endif
+
 #ifdef __cplusplus
 #define STRUCT(type) type
 #define STRUCT_ZERO(type) {}
@@ -575,13 +581,10 @@ imp_draw * imp_next_draw(imp_ctx *ctx) {
       // This is going to be really tough. Honestly dont really know how to do it
       // without being balls slow or with tons of repeated code throughout this header
       // maybe macros can save the day?
-      double *x = (double *) datax->ptr;
-      double *y = (double *) datay->ptr;
 
       int padding = 15; // padding, in pixels
 
-      float pw = (x[datax->n-1] - x[0]) / (p->params.screen.w - 2*padding);
-
+      float x0 = 0, dx = 0;
       {
         int I = 0;
         int N = (int) datax->n;
@@ -591,13 +594,60 @@ imp_draw * imp_next_draw(imp_ctx *ctx) {
           float max = -INFINITY;
           float sum = 0;
           int j = i;
-          float xI = x[0] + I*pw;
-          while (j < N && x[j] < xI) {
-            float yj = y[j++];
-            min = MIN(min, yj);
-            max = MAX(max, yj);
-            sum += yj;
+          float pw, xI;
+
+          /* NOTE(lf) the core of this code is just simple aggregation
+            that for a slice of X's, calculates basic stats on the Y's:
+
+            Making it type generic is annoying in C because of the many 
+            combinations, so macros are used.
+          */
+          #define IMP_AGG(xtype, ytype) { \
+            xtype *x = (xtype *) datax->ptr; \
+            ytype *y = (ytype *) datay->ptr; \
+            x0 = x[0]; \
+            dx = (x[datax->n-1] - x0); \
+            pw = dx / (p->params.screen.w - 2*padding); \
+            xI = x0 + I*pw; \
+            while (j < N && x[j] < xI) { \
+              float yj = (float) y[j++]; \
+              min = MIN(min, yj); \
+              max = MAX(max, yj); \
+              sum += yj; \
+            } \
+          } 
+          
+          #define IMP_YSWITCH(xtype) switch (datay->type) { \
+            case IMP_F32: IMP_AGG(xtype, float    ) break; \
+            case IMP_F64: IMP_AGG(xtype, double   ) break; \
+            case IMP_S8:  IMP_AGG(xtype, int8_t   ) break; \
+            case IMP_S16: IMP_AGG(xtype, int16_t  ) break; \
+            case IMP_S32: IMP_AGG(xtype, int32_t  ) break; \
+            case IMP_S64: IMP_AGG(xtype, int64_t  ) break; \
+            case IMP_U8:  IMP_AGG(xtype, uint8_t  ) break; \
+            case IMP_U16: IMP_AGG(xtype, uint16_t ) break; \
+            case IMP_U32: IMP_AGG(xtype, uint32_t ) break; \
+            case IMP_U64: IMP_AGG(xtype, uint64_t ) break; \
+            default: { imp_unreachable; } break; \
           }
+
+          switch (datax->type) {
+            case IMP_F32: IMP_YSWITCH( float    ) break;
+            case IMP_F64: IMP_YSWITCH( double   ) break;
+            case IMP_S8:  IMP_YSWITCH( int8_t   ) break;
+            case IMP_S16: IMP_YSWITCH( int16_t  ) break;
+            case IMP_S32: IMP_YSWITCH( int32_t  ) break;
+            case IMP_S64: IMP_YSWITCH( int64_t  ) break;
+            case IMP_U8:  IMP_YSWITCH( uint8_t  ) break;
+            case IMP_U16: IMP_YSWITCH( uint16_t ) break;
+            case IMP_U32: IMP_YSWITCH( uint32_t ) break;
+            case IMP_U64: IMP_YSWITCH( uint64_t ) break;
+            default: imp_unreachable; break;
+          }
+
+          #undef IMP_YSWITCH
+          #undef IMP_AGG
+          
           int n = j - i;
           float avg = sum / avg;
           i = j;
@@ -614,7 +664,7 @@ imp_draw * imp_next_draw(imp_ctx *ctx) {
               cmd->array.point[cmd->count++] = STRUCT(imp_v2){ xI, max };
             }
           } else if (n == 1) {
-            cmd->array.point[cmd->count++] = STRUCT(imp_v2){ x[i-1], min };
+            cmd->array.point[cmd->count++] = STRUCT(imp_v2){ xI, min };
           }
         }
       }
@@ -631,8 +681,8 @@ imp_draw * imp_next_draw(imp_ctx *ctx) {
         x * ((b - a)/(c - d)) + (a + (-d)((b - a)/(c - d)))
         x * xs + xo
       */
-      float xs = (p->params.screen.w - 2*padding) / (x[datax->n-1] - x[0]);
-      float xo = p->params.screen.x + padding - x[0] * xs;
+      float xs = (p->params.screen.w - 2*padding) / dx;
+      float xo = p->params.screen.x + padding - x0 * xs;
       float ys, yo;
       {
         float ymin = INFINITY;

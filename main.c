@@ -121,17 +121,18 @@ int main(int argc, char* argv[]) {
     });
 
     #define N 100000
-    double t[N];
-    double y1[N];
+    float t[N];
+    int16_t y1[N];
 
     for (int i = 0; i < N; i++) {
       t[i] = (1./(float)N) * (i+time);
-      y1[i] = sin ( 5 * (2 * M_PI * t[i]) ) + sin ( 71 * (2 * M_PI * t[i]) ) + sin ( 17 * (2 * M_PI * t[i]) );
+      y1[i] = 8192 * (sin ( 5 * (2 * M_PI * t[i]) ) + sin ( 71 * (2 * M_PI * t[i]) ) + sin ( 17 * (2 * M_PI * t[i]) ));
+    
     }
     time++;
     
-    imp_plot_x(p, STRUCT(imp_data){ imp_strl("time"), IMP_F64, &t, N });
-    imp_plot_y(p, STRUCT(imp_data){ imp_strl("y1"), IMP_F64, &y1 });
+    imp_plot_x(p, STRUCT(imp_data){ imp_strl("time"), IMP_F32, &t, N });
+    imp_plot_y(p, STRUCT(imp_data){ imp_strl("y1"), IMP_S16, &y1 });
 
     for (imp_draw *cmd; (cmd = imp_next_draw(&imp)); ) {
       ASSERT_SDL(SDL_SetRenderDrawColorFloat(renderer, cmd->color.r, cmd->color.g, cmd->color.b, cmd->color.a));
