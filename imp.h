@@ -583,36 +583,38 @@ imp_draw * imp_next_draw(imp_ctx *ctx) {
       float pw = (x[datax->n-1] - x[0]) / (p->params.screen.w - 2*padding);
 
       {
-        int p = 0;
-        int n = 0;
-        float min = 0;
-        float max = 0;
-        for (int i = 0; i < (int) datax->n; ) {
-          if (x[i] >= x[0]+p*pw) {
-            // add points for current x
-            if (n > 1) { // min + max, 2 points
-              float py = cmd->array.point[cmd->count-1].y;
-              float nx = x[0]+(p-0.5)*pw;
-              // make the longest line
-              if (ABS(min - py) > ABS(max - py)) {
-                if (max > py) cmd->array.point[cmd->count++] = STRUCT(imp_v2){ nx, max };
-                cmd->array.point[cmd->count++] = STRUCT(imp_v2){ nx, min };
-              } else {
-                if (min < py) cmd->array.point[cmd->count++] = STRUCT(imp_v2){ nx, min };
-                cmd->array.point[cmd->count++] = STRUCT(imp_v2){ nx, max };
-              }
-            } else if (n == 1) { // just 1 point
-              cmd->array.point[cmd->count++] = STRUCT(imp_v2){ x[i-1], min };
-            } // else no points
-            n = 0;
-            min = INFINITY;
-            max = -INFINITY;
-            p++;
-          } else {
-            n++;
-            min = MIN(min, y[i]);
-            max = MAX(max, y[i]);
-            i++;
+        int I = 0;
+        int N = (int) datax->n;
+        for (int i = 0; i < (int) N; ) {
+          // aggregate points
+          float min = INFINITY;
+          float max = -INFINITY;
+          float sum = 0;
+          int j = i;
+          float xI = x[0] + I*pw;
+          while (j < N && x[j] < xI) {
+            float yj = y[j++];
+            min = MIN(min, yj);
+            max = MAX(max, yj);
+            sum += yj;
+          }
+          int n = j - i;
+          float avg = sum / avg;
+          i = j;
+          I++;
+          
+          if (n > 1) { // multiple points 
+            float py = cmd->array.point[cmd->count-1].y;
+            // make the longest line
+            if (ABS(min - py) > ABS(max - py)) {
+              if (max > py) cmd->array.point[cmd->count++] = STRUCT(imp_v2){ xI, max };
+              cmd->array.point[cmd->count++] = STRUCT(imp_v2){ xI, min };
+            } else {
+              if (min < py) cmd->array.point[cmd->count++] = STRUCT(imp_v2){ xI, min };
+              cmd->array.point[cmd->count++] = STRUCT(imp_v2){ xI, max };
+            }
+          } else if (n == 1) {
+            cmd->array.point[cmd->count++] = STRUCT(imp_v2){ x[i-1], min };
           }
         }
       }
@@ -623,6 +625,7 @@ imp_draw * imp_next_draw(imp_ctx *ctx) {
       // TODO(lf): zoom + pan requires that this be stored across frames and modifiable
       // TODO(lf): limit aggregated points to what is actually in view
 
+      imp_v2 *points = cmd->array.point; // helpful for nnd debugger
       /* REMAP -> FMA
         a + (b-a) * (x - d)/(c - d)
         x * ((b - a)/(c - d)) + (a + (-d)((b - a)/(c - d)))
@@ -635,17 +638,17 @@ imp_draw * imp_next_draw(imp_ctx *ctx) {
         float ymin = INFINITY;
         float ymax = -INFINITY;
         for (int i = 0; i < (int) cmd->count; i++) {
-          ymin = MIN(ymin, cmd->array.point[i].y);
-          ymax = MAX(ymax, cmd->array.point[i].y);
+          ymin = MIN(ymin, points[i].y);
+          ymax = MAX(ymax, points[i].y);
         }
         ys = (p->params.screen.h - 2*padding) / (ymax - ymin);
         yo = p->params.screen.y + padding - ymin * ys;
       }
         
       for (int i = 0; i < (int) cmd->count; i++) {
-        cmd->array.point[i] = STRUCT(imp_v2) {
-          cmd->array.point[i].x * xs + xo,
-          cmd->array.point[i].y * ys + yo,
+        points[i] = STRUCT(imp_v2) {
+          points[i].x * xs + xo,
+          points[i].y * ys + yo,
         };
       }
     }
