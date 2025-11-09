@@ -119,12 +119,14 @@ int main(int argc, char* argv[]) {
     imp_plot *p = imp_plot_start(&imp, IMP_STRUCT(imp_plot_params){ 
       IMP_STRUCT(imp_text){ imp_strl("Plot 1") }, 
       IMP_STRUCT(imp_r2){ (imp.input.screen.w-imp.input.screen.h)/2, 0, imp.input.screen.h, imp.input.screen.h },
+      IMP_STRUCT_ZERO(imp_r2),
+      IMP_DRAW_TITLE | IMP_DRAW_X_AXIS | IMP_DRAW_Y_AXIS | IMP_DRAW_BORDER | IMP_DRAW_GRID,
     });
 
     #define N 100000
     float t[N];
 
-    struct {
+    struct { // Example struct to demonstrate striding
       int16_t data;
       uint8_t garbage[32];
     } y1[N];

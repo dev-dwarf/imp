@@ -28,8 +28,13 @@ LONG-TERM:
 
 #if defined(__GNUC__)
 #define imp_unreachable __builtin_unreachable()
+#define imp_inline inline __attribute__((always_inline))
 #elif defined(_MSC_VER)
 #define imp_unreachable __assume(false)
+#define imp_inline __forceinline
+#else
+#define imp_unreachable
+#define imp_inline
 #endif
 
 #ifdef __cplusplus
@@ -186,7 +191,7 @@ enum imp_data_flags {
 
 };
 
-enum imp_style_flags {
+enum imp_data_style {
   IMP_LINES           = (1 << 0), // show lines for series
   IMP_LINES_FILL      = (1 << 1), // fill area under (or to reference) lines
   IMP_MARKERS         = (1 << 2), // show markers at each point
@@ -214,13 +219,32 @@ struct imp_data {
   struct imp_data *_next;
 };
 
+enum imp_plot_style {
+  IMP_DRAW_TITLE    = (1 << 0),
+  IMP_DRAW_X_AXIS   = (1 << 1),
+  IMP_DRAW_Y_AXIS   = (1 << 2),
+  
+  IMP_DRAW_BORDER_L = (1 << 12),
+  IMP_DRAW_BORDER_U = (1 << 13),
+  IMP_DRAW_BORDER_R = (1 << 14),
+  IMP_DRAW_BORDER_D = (1 << 15),
+  IMP_DRAW_BORDER   = IMP_DRAW_BORDER_L | IMP_DRAW_BORDER_U | IMP_DRAW_BORDER_R | IMP_DRAW_BORDER_D,
+
+  IMP_DRAW_GRID_X   = (1 << 16),
+  IMP_DRAW_GRID_Y   = (1 << 17),
+  IMP_DRAW_GRID     = IMP_DRAW_GRID_X | IMP_DRAW_GRID_Y,
+};
+
 struct imp_plot_params {
   imp_text title;
   imp_r2 screen; // location in screen-ref
   imp_r2 view; // target view rectangle, data-ref
 
-  uint32_t default_flags;
-  uint32_t default_style;
+  uint64_t style;
+  uint64_t flags;
+
+  uint32_t default_data_flags;
+  uint32_t default_data_style;
   uint32_t hash;
 };
 
@@ -232,12 +256,15 @@ struct imp_plot {
   
   uint32_t x_series;
   uint32_t y_series;
-
+  
   // internal
   imp_data *first_x; 
   imp_data *first_y;
   imp_data *last_x; // x to match y with
   imp_data *_free;
+
+  
+  
   
   imp_plot *_next;
 };
@@ -256,6 +283,9 @@ struct imp_ctx {
   imp_draw *_next_cmd;
   imp_draw *_last_cmd;
   bool _made_cmds;
+
+  imp_r2 _mats[8]; // transformation stack, sparse 3x3 scale + offset matrix: (x, y) = offset, (w, h) = scale
+  uint32_t _mat;
 };
 
 // user-defined functions
@@ -288,6 +318,42 @@ struct imp_draw {
     imp_v2 point[1]; // used for verts and lines
   } array;
 };
+imp_inline imp_r2 _imp_mat(imp_ctx *ctx) {
+  return ctx->_mats[ctx->_mat - 1];
+}
+
+imp_inline imp_v2 _imp_m(imp_ctx *ctx, imp_v2 v) {
+  // convert v in pixels or fractions to fraction
+  imp_r2 M = _imp_mat(ctx);
+  return IMP_STRUCT(imp_v2) {
+      v.x >= 1.0? v.x / M.w : v.x,
+      v.y >= 1.0? v.y / M.w : v.y,
+  };
+}
+
+imp_inline imp_r2 _imp_mat_r2(imp_ctx *ctx, imp_r2 r) {
+  imp_r2 M = _imp_mat(ctx);
+  return IMP_STRUCT(imp_r2) {
+    M.x + M.w * r.x,
+    M.y + M.h * r.y,
+    M.w * r.w,
+    M.h * r.h,
+  };
+}
+imp_inline imp_v2 _imp_mat_v2(imp_ctx *ctx, imp_v2 v) {
+  imp_r2 M = _imp_mat(ctx);
+  return IMP_STRUCT(imp_v2) {
+    M.x + M.w * v.x,
+    M.y + M.h * v.y
+  };
+}
+imp_inline void _imp_push_mat(imp_ctx *ctx, imp_r2 M) {
+  ctx->_mats[ctx->_mat] = ctx->_mat? _imp_mat_r2(ctx, M) : M;
+  ctx->_mat++;
+}
+imp_inline void _imp_pop_mat(imp_ctx *ctx) {
+  ctx->_mat = ctx->_mat? ctx->_mat-1 : 0;
+}
 
 imp_draw * _imp_push_cmd(imp_ctx *ctx, imp_draw *cmd) {
   cmd->next = ctx->_last_cmd;
@@ -297,6 +363,7 @@ imp_draw * _imp_push_cmd(imp_ctx *ctx, imp_draw *cmd) {
 
 imp_draw* _imp_push_rect(imp_ctx *ctx, imp_r2 rect, imp_cf color) {
   imp_draw *cmd = ctx->_last_cmd;
+  rect = _imp_mat_r2(ctx, rect);
   if (cmd && (cmd->_used == ctx->mem_cache.used)
   && (cmd->type == IMP_DRAW_RECTS)
   && (memcmp(&cmd->color, &color, sizeof(color)) == 0)) {
@@ -338,7 +405,6 @@ imp_draw* _imp_push_lines(imp_ctx *ctx, uint32_t cap, imp_cf color) {
 
 void imp_ctx_update(imp_ctx *ctx, imp_input input);
 imp_draw *imp_next_draw(imp_ctx *ctx); // draw undrawn plots
-
 
 imp_plot *imp_plot_start(imp_ctx *ctx, imp_plot_params p);
 imp_data *imp_plot_x(imp_plot *p, imp_data x);
@@ -404,8 +470,8 @@ imp_plot *imp_plot_start(imp_ctx *ctx, imp_plot_params p) {
   );
   
   // fill in default params where possible
-  if (!p.default_style) {
-    p.default_style |= IMP_LINES;
+  if (!p.default_data_style) {
+    p.default_data_style |= IMP_LINES;
   }
 
   p.hash = p.hash? p.hash : str_hash_fnv1a(p.title.s, 0);
@@ -486,8 +552,8 @@ imp_data *imp_plot_x(imp_plot *p, imp_data x) {
 imp_data *imp_plot_y(imp_plot *p, imp_data y) {
   IMP_ASSERT(p != 0, "plot should not be null!\n");
   
-  y.flags = y.flags? y.flags : p->params.default_flags;
-  y.style = y.style? y.style : p->params.default_style;
+  y.flags = y.flags? y.flags : p->params.default_data_flags;
+  y.style = y.style? y.style : p->params.default_data_style;
 
   IMP_ASSERT(p->last_x != 0, 
     "y data must have x data already set!\n"
@@ -546,196 +612,190 @@ imp_draw * imp_next_draw(imp_ctx *ctx) {
 
     imp_draw *cmd = _imp_push_lines(ctx, agg_size, blue);
 
+    _imp_push_mat(ctx, p->params.screen); // screen
     { // aggregation for time series data 
       // TODO(lf) make this shit configurable
-      int padding = .10 * p->params.screen.h; // padding, in pixels
-      float border_width = 1;
+      imp_v2 margin = _imp_m(ctx, IMP_STRUCT(imp_v2){ .1, .1 }); // margin, in percent of screen
+      imp_v2 _border_width = _imp_m(ctx, IMP_STRUCT(imp_v2){ 2, 2});
+      float border_width = IMP_MAX(_border_width.x, _border_width.y);
       
-      int view_w = p->params.screen.w - 2*padding;
-      int view_h = p->params.screen.h - 2*padding;
+      // int view_w = p->params.screen.w - 2*padding.x;
+      // int view_h = p->params.screen.h - 2*padding.y;
 
-      { // border
-        imp_r2 l = IMP_STRUCT(imp_r2) {
-          p->params.screen.x + padding,
-          p->params.screen.y + padding,
-          border_width,
-          view_h + border_width,
-        };
-        imp_r2 u = l;
-        u.w = view_w + border_width;
-        u.h = border_width;
-        imp_r2 r = l;
-        r.x += view_w;
-        imp_r2 d = u;
-        d.y += view_h;
-        
-        _imp_push_rect(ctx, u, black); // top
-        _imp_push_rect(ctx, d, black); // down
-        _imp_push_rect(ctx, l, black); // left
-        _imp_push_rect(ctx, r, black); // right
+      _imp_push_mat(ctx, IMP_STRUCT(imp_r2){ margin.x, margin.y, 1.0 - 2*margin.x, 1.0 - 2*margin.y });
+      if (p->params.style & IMP_DRAW_BORDER) {
+        imp_r2 l = IMP_STRUCT(imp_r2) { 0, 0, border_width, 1 };
+        imp_r2 u = IMP_STRUCT(imp_r2) { 0, 0, 1, border_width };
+        imp_r2 r = IMP_STRUCT(imp_r2) { 1-border_width, 0, border_width, 1 };
+        imp_r2 d = IMP_STRUCT(imp_r2) { 0, 1-border_width, 1, border_width };
+        if (p->params.style & IMP_DRAW_BORDER_L) _imp_push_rect(ctx, l, black); // left
+        if (p->params.style & IMP_DRAW_BORDER_U) _imp_push_rect(ctx, u, black); // top
+        if (p->params.style & IMP_DRAW_BORDER_R) _imp_push_rect(ctx, r, black); // right
+        if (p->params.style & IMP_DRAW_BORDER_D) _imp_push_rect(ctx, d, black); // down
       }
 
       imp_data *datax = p->first_x;
       imp_data *datay = p->first_y;
           
 
-      float x0 = 0, dx = 0;
-      {
-        int I = 0;
-        int N = (int) datax->n;
-        for (int i = 0; i < (int) N; ) {
-          // aggregate points
-          float min = INFINITY;
-          float max = -INFINITY;
-          float sum = 0;
-          float sum2 = 0;
-          int j = i;
-          float pw, xI;
+      // float x0 = 0, dx = 0;
+      // {
+      //   int I = 0;
+      //   int N = (int) datax->n;
+      //   for (int i = 0; i < (int) N; ) {
+      //     // aggregate points
+      //     float min = INFINITY;
+      //     float max = -INFINITY;
+      //     float sum = 0;
+      //     float sum2 = 0;
+      //     int j = i;
+      //     float pw, xI;
 
-          /* NOTE(lf) the core of this code is just simple aggregation
-            that for a slice of X's, calculates basic stats on the Y's:
+      //     /* NOTE(lf) the core of this code is just simple aggregation
+      //       that for a slice of X's, calculates basic stats on the Y's:
 
-            Making it type generic is annoying in C because of the many 
-            combinations, so macros are used.
+      //       Making it type generic is annoying in C because of the many 
+      //       combinations, so macros are used.
 
-            TODO(lf): investigate how the codegen is on this, and ways it can be made better
-            TODO(lf) dx and pw this should not be calculated in here
-            TODO(lf) xI should be the same type as x to avoid precision loss in high part of 64 biit ints
-          */
-          #define IMP_AGG(xtype, ytype) { \
-            uint8_t *x = (uint8_t *) datax->ptr; \
-            uint8_t *y = (uint8_t *) datay->ptr; \
-            x0 = (float) *( (xtype*) x); \
-            dx = (float) *( (xtype*) (x + (N-1)*datax->stride )) - x0; \
-            pw = dx / view_w; \
-            xI = x0 + I*pw; \
-            while (j < N && *( (xtype*) (x + j*datax->stride)) < xI) { \
-              float yj = (float) *( (ytype*) (y + (j++)*datay->stride)); \
-              min = IMP_MIN(min, yj); \
-              max = IMP_MAX(max, yj); \
-              sum += yj; \
-              sum2 += yj*yj; \
-            } \
-          } 
+      //       TODO(lf): investigate how the codegen is on this, and ways it can be made better
+      //       TODO(lf) dx and pw this should not be calculated in here
+      //       TODO(lf) xI should be the same type as x to avoid precision loss in high part of 64 biit ints
+      //     */
+      //     #define IMP_AGG(xtype, ytype) { \
+      //       uint8_t *x = (uint8_t *) datax->ptr; \
+      //       uint8_t *y = (uint8_t *) datay->ptr; \
+      //       x0 = (float) *( (xtype*) x); \
+      //       dx = (float) *( (xtype*) (x + (N-1)*datax->stride )) - x0; \
+      //       pw = dx / view_w; \
+      //       xI = x0 + I*pw; \
+      //       while (j < N && *( (xtype*) (x + j*datax->stride)) < xI) { \
+      //         float yj = (float) *( (ytype*) (y + (j++)*datay->stride)); \
+      //         min = IMP_MIN(min, yj); \
+      //         max = IMP_MAX(max, yj); \
+      //         sum += yj; \
+      //         sum2 += yj*yj; \
+      //       } \
+      //     } 
           
-          #define IMP_YSWITCH(xtype) switch (datay->type) { \
-            case IMP_F32: IMP_AGG(xtype, float    ) break; \
-            case IMP_F64: IMP_AGG(xtype, double   ) break; \
-            case IMP_S8:  IMP_AGG(xtype, int8_t   ) break; \
-            case IMP_S16: IMP_AGG(xtype, int16_t  ) break; \
-            case IMP_S32: IMP_AGG(xtype, int32_t  ) break; \
-            case IMP_S64: IMP_AGG(xtype, int64_t  ) break; \
-            case IMP_U8:  IMP_AGG(xtype, uint8_t  ) break; \
-            case IMP_U16: IMP_AGG(xtype, uint16_t ) break; \
-            case IMP_U32: IMP_AGG(xtype, uint32_t ) break; \
-            case IMP_U64: IMP_AGG(xtype, uint64_t ) break; \
-            default: { imp_unreachable; } break; \
-          }
+      //     #define IMP_YSWITCH(xtype) switch (datay->type) { \
+      //       case IMP_F32: IMP_AGG(xtype, float    ) break; \
+      //       case IMP_F64: IMP_AGG(xtype, double   ) break; \
+      //       case IMP_S8:  IMP_AGG(xtype, int8_t   ) break; \
+      //       case IMP_S16: IMP_AGG(xtype, int16_t  ) break; \
+      //       case IMP_S32: IMP_AGG(xtype, int32_t  ) break; \
+      //       case IMP_S64: IMP_AGG(xtype, int64_t  ) break; \
+      //       case IMP_U8:  IMP_AGG(xtype, uint8_t  ) break; \
+      //       case IMP_U16: IMP_AGG(xtype, uint16_t ) break; \
+      //       case IMP_U32: IMP_AGG(xtype, uint32_t ) break; \
+      //       case IMP_U64: IMP_AGG(xtype, uint64_t ) break; \
+      //       default: { imp_unreachable; } break; \
+      //     }
 
-          switch (datax->type) {
-            case IMP_F32: IMP_YSWITCH( float    ) break;
-            case IMP_F64: IMP_YSWITCH( double   ) break;
-            case IMP_S8:  IMP_YSWITCH( int8_t   ) break;
-            case IMP_S16: IMP_YSWITCH( int16_t  ) break;
-            case IMP_S32: IMP_YSWITCH( int32_t  ) break;
-            case IMP_S64: IMP_YSWITCH( int64_t  ) break;
-            case IMP_U8:  IMP_YSWITCH( uint8_t  ) break;
-            case IMP_U16: IMP_YSWITCH( uint16_t ) break;
-            case IMP_U32: IMP_YSWITCH( uint32_t ) break;
-            case IMP_U64: IMP_YSWITCH( uint64_t ) break;
-            default: imp_unreachable; break;
-          }
+      //     switch (datax->type) {
+      //       case IMP_F32: IMP_YSWITCH( float    ) break;
+      //       case IMP_F64: IMP_YSWITCH( double   ) break;
+      //       case IMP_S8:  IMP_YSWITCH( int8_t   ) break;
+      //       case IMP_S16: IMP_YSWITCH( int16_t  ) break;
+      //       case IMP_S32: IMP_YSWITCH( int32_t  ) break;
+      //       case IMP_S64: IMP_YSWITCH( int64_t  ) break;
+      //       case IMP_U8:  IMP_YSWITCH( uint8_t  ) break;
+      //       case IMP_U16: IMP_YSWITCH( uint16_t ) break;
+      //       case IMP_U32: IMP_YSWITCH( uint32_t ) break;
+      //       case IMP_U64: IMP_YSWITCH( uint64_t ) break;
+      //       default: imp_unreachable; break;
+      //     }
 
-          #undef IMP_YSWITCH
-          #undef IMP_AGG
+      //     #undef IMP_YSWITCH
+      //     #undef IMP_AGG
           
-          int n = j - i;
-          float avg = sum / n;
-          float var = (sum2 / n) - avg*avg;
-          (void) var;
-          i = j;
-          I++;
+      //     int n = j - i;
+      //     float avg = sum / n;
+      //     float var = (sum2 / n) - avg*avg;
+      //     (void) var;
+      //     i = j;
+      //     I++;
 
-          float px = xI - pw;
-          if (n > 1) { // multiple points 
-            float py = cmd->array.point[cmd->count-1].y;
-            // make the longest line
-            if (IMP_ABS(min - py) > IMP_ABS(max - py)) {
-              if (max > py) cmd->array.point[cmd->count++] = IMP_STRUCT(imp_v2){ px, max };
-              cmd->array.point[cmd->count++] = IMP_STRUCT(imp_v2){ px, min };
-            } else {
-              if (min < py) cmd->array.point[cmd->count++] = IMP_STRUCT(imp_v2){ px, min };
-              cmd->array.point[cmd->count++] = IMP_STRUCT(imp_v2){ px, max };
-            }
-          } else if (n == 1) {
-            cmd->array.point[cmd->count++] = IMP_STRUCT(imp_v2){ px, min };
-          }
-        }
-      }
+      //     float px = xI - pw;
+      //     if (n > 1) { // multiple points 
+      //       float py = cmd->array.point[cmd->count-1].y;
+      //       // make the longest line
+      //       if (IMP_ABS(min - py) > IMP_ABS(max - py)) {
+      //         if (max > py) cmd->array.point[cmd->count++] = IMP_STRUCT(imp_v2){ px, max };
+      //         cmd->array.point[cmd->count++] = IMP_STRUCT(imp_v2){ px, min };
+      //       } else {
+      //         if (min < py) cmd->array.point[cmd->count++] = IMP_STRUCT(imp_v2){ px, min };
+      //         cmd->array.point[cmd->count++] = IMP_STRUCT(imp_v2){ px, max };
+      //       }
+      //     } else if (n == 1) {
+      //       cmd->array.point[cmd->count++] = IMP_STRUCT(imp_v2){ px, min };
+      //     }
+      //   }
+      // }
 
-      // TODO(lf) let user specifically set the yscale,
-      // but otherwise scale it to fit the plot
+      // // TODO(lf) let user specifically set the yscale,
+      // // but otherwise scale it to fit the plot
 
-      // TODO(lf): zoom + pan requires that this be stored across frames and modifiable
-      // TODO(lf): limit aggregated points to what is actually in view
+      // // TODO(lf): zoom + pan requires that this be stored across frames and modifiable
+      // // TODO(lf): limit aggregated points to what is actually in view
 
-      imp_v2 *points = cmd->array.point; // helpful for nnd debugger
-      /* REMAP -> FMA
-        a + (b-a) * (x - d)/(c - d)
-        x * ((b - a)/(c - d)) + (a + (-d)((b - a)/(c - d)))
-        x * xs + xo
-      */
-      float xs = view_w / dx;
-      float xo = p->params.screen.x + padding - x0 * xs;
-      float ys, yo;
-      {
-        float ymin = INFINITY;
-        float ymax = -INFINITY;
-        for (int i = 0; i < (int) cmd->count; i++) {
-          ymin = IMP_MIN(ymin, points[i].y);
-          ymax = IMP_MAX(ymax, points[i].y);
-        }
+      // imp_v2 *points = cmd->array.point; // helpful for nnd debugger
+      // /* REMAP -> FMA
+      //   a + (b-a) * (x - d)/(c - d)
+      //   x * ((b - a)/(c - d)) + (a + (-d)((b - a)/(c - d)))
+      //   x * xs + xo
+      // */
+      // float xs = view_w / dx;
+      // float xo = p->params.screen.x + padding.x - x0 * xs;
+      // float ys, yo;
+      // {
+      //   float ymin = INFINITY;
+      //   float ymax = -INFINITY;
+      //   for (int i = 0; i < (int) cmd->count; i++) {
+      //     ymin = IMP_MIN(ymin, points[i].y);
+      //     ymax = IMP_MAX(ymax, points[i].y);
+      //   }
 
-        // NOTE(lf) ymin and ymax are flipped here from what you might expect
-        // this is to translate to -y = up coords which are standard in graphics
-        ys = view_h / (ymin - ymax);
-        yo = (p->params.screen.y + padding - ymax * ys);
-      }
+      //   // NOTE(lf) ymin and ymax are flipped here from what you might expect
+      //   // this is to translate to -y = up coords which are standard in graphics
+      //   // but opposite from the expectations for plots.
+      //   ys = view_h / (ymin - ymax);
+      //   yo = (p->params.screen.y + padding.y - ymax * ys);
+      // }
       
-      for (int i = 0; i < (int) cmd->count; i++) {
-        points[i] = IMP_STRUCT(imp_v2) {
-          points[i].x * xs + xo,
-          points[i].y * ys + yo,
-        };
-      }
+      // for (int i = 0; i < (int) cmd->count; i++) {
+      //   points[i] = IMP_STRUCT(imp_v2) {
+      //     points[i].x * xs + xo,
+      //     points[i].y * ys + yo,
+      //   };
+      // }
 
-      // Y=0 axis TODO(lf) disable 
-      {
-        imp_r2 r = IMP_STRUCT(imp_r2) {
-          p->params.screen.x + padding,
-          /* 0*ys + */ yo,
-          view_w,
-          1,
-        };
-        _imp_push_rect(ctx, r, black);
-      }
+      // if (p->params.style & IMP_DRAW_X_AXIS) {
+      //   imp_r2 r = IMP_STRUCT(imp_r2) {
+      //     p->params.screen.x + padding.x,
+      //     /* 0*ys + */ yo,
+      //     view_w,
+      //     1,
+      //   };
+      //   _imp_push_rect(ctx, r, black);
+      // }
 
-      // X=0 axis
-      {
-        imp_r2 r = IMP_STRUCT(imp_r2) {
-          /* 0*xs + */ xo,
-          p->params.screen.y + padding,
-          1,
-          view_h,
-        };
-        _imp_push_rect(ctx, r, black);
-      }
+      // if (p->params.style & IMP_DRAW_Y_AXIS) {
+      //   imp_r2 r = IMP_STRUCT(imp_r2) {
+      //     /* 0*xs + */ xo,
+      //     p->params.screen.y + padding.y,
+      //     1,
+      //     view_h,
+      //   };
+      //   _imp_push_rect(ctx, r, black);
+      // }
+      
 
+      _imp_pop_mat(ctx); // margin
       
     }
 
-
-    _imp_push_rect(ctx, p->params.screen, white);
+    _imp_push_rect(ctx, IMP_STRUCT(imp_r2){0, 0, 1, 1}, white);
+    _imp_pop_mat(ctx);
 
     ctx->_next_cmd = ctx->_last_cmd;
     ctx->_made_cmds = 1;
