@@ -17,7 +17,7 @@ LONG-TERM:
 
 */
 
-#include <stdint.h>
+#include <stdint.h> // sized int types 
 #include <string.h> // memset, memcmp
 
 #define IMP_ARRAY_LENGTH(A) (sizeof(A)/sizeof(*(A)))
@@ -192,7 +192,6 @@ enum imp_style_flags {
   IMP_MARKERS         = (1 << 2), // show markers at each point
 };
 
-
 struct imp_data {
   // core
   imp_str name;
@@ -256,6 +255,7 @@ struct imp_ctx {
   uint32_t _cache_save;
   imp_draw *_next_cmd;
   imp_draw *_last_cmd;
+  bool _made_cmds;
 };
 
 // user-defined functions
@@ -290,11 +290,7 @@ struct imp_draw {
 };
 
 imp_draw * _imp_push_cmd(imp_ctx *ctx, imp_draw *cmd) {
-  if (!ctx->_last_cmd) {
-    ctx->_next_cmd = cmd;
-  } else {
-    ctx->_last_cmd->next = cmd;
-  }
+  cmd->next = ctx->_last_cmd;
   ctx->_last_cmd = cmd; 
   return cmd;
 }
@@ -493,9 +489,6 @@ imp_data *imp_plot_y(imp_plot *p, imp_data y) {
   y.flags = y.flags? y.flags : p->params.default_flags;
   y.style = y.style? y.style : p->params.default_style;
 
-  // TODO alloc decimation buffer for data, if n > p.width
-  // nvm should happen when drawing I think
-  
   IMP_ASSERT(p->last_x != 0, 
     "y data must have x data already set!\n"
     "call imp_plot_x before imp_plot_y.\n"
@@ -507,11 +500,10 @@ imp_data *imp_plot_y(imp_plot *p, imp_data y) {
 }
 
 imp_draw * imp_next_draw(imp_ctx *ctx) {
-  // commands already generated, just keep outputting from array
-  if (!ctx->_last_cmd) {
+  // need to generate commands
+  if (!ctx->_made_cmds) {
     imp_plot *p = ctx->first_plot;
   
-    
     // for (imp_plot *p = ctx->first_plot; p; p = p->next) {
       
     // }
@@ -541,41 +533,51 @@ imp_draw * imp_next_draw(imp_ctx *ctx) {
 
     // WARN for now just clear cache always
     imp_arena_reset(&ctx->mem_cache, 0);
-
+    ctx->_last_cmd = 0;
     
     imp_cf white = IMP_STRUCT(imp_cf){ 1.0, 1.0, 1.0, 1.0 };
+    imp_cf grey = IMP_STRUCT(imp_cf){ 0.5, 0.5, 0.5, 1.0 };
+    imp_cf black = IMP_STRUCT(imp_cf){ 0.0, 0.0, 0.0, 1.0 };
+    
     imp_cf red = IMP_STRUCT(imp_cf){ 1.0, 0.0, 0.0, 1.0 };
     imp_cf blue = IMP_STRUCT(imp_cf){ 0.0, 0.0, 1.0, 1.0 };
     
-
-    imp_r2 r = p->params.screen;
-
-    _imp_push_rect(ctx, r, white);
-
-    // float o = r.w * 0.1;
-    // r.x += o;
-    // r.w *= 0.6;
-
-    // r.y += r.h * 0.1;
-    // r.h *= 0.8;
-
-    
-    // r.w *= 0.5;
-
-    // _imp_push_rect(ctx, r, red);
-    
-    // r.x += r.w + o*2;
-    // _imp_push_rect(ctx, r, red);
-
     uint32_t agg_size = 2*p->params.screen.w;
 
     imp_draw *cmd = _imp_push_lines(ctx, agg_size, blue);
 
     { // aggregation for time series data 
+      // TODO(lf) make this shit configurable
+      int padding = .10 * p->params.screen.h; // padding, in pixels
+      float border_width = 1;
+      
+      int view_w = p->params.screen.w - 2*padding;
+      int view_h = p->params.screen.h - 2*padding;
+
+      { // border
+        imp_r2 l = IMP_STRUCT(imp_r2) {
+          p->params.screen.x + padding,
+          p->params.screen.y + padding,
+          border_width,
+          view_h + border_width,
+        };
+        imp_r2 u = l;
+        u.w = view_w + border_width;
+        u.h = border_width;
+        imp_r2 r = l;
+        r.x += view_w;
+        imp_r2 d = u;
+        d.y += view_h;
+        
+        _imp_push_rect(ctx, u, black); // top
+        _imp_push_rect(ctx, d, black); // down
+        _imp_push_rect(ctx, l, black); // left
+        _imp_push_rect(ctx, r, black); // right
+      }
 
       imp_data *datax = p->first_x;
       imp_data *datay = p->first_y;
-      int padding = 15; // padding, in pixels
+          
 
       float x0 = 0, dx = 0;
       {
@@ -597,14 +599,15 @@ imp_draw * imp_next_draw(imp_ctx *ctx) {
             combinations, so macros are used.
 
             TODO(lf): investigate how the codegen is on this, and ways it can be made better
-            TODO(lf): make this kernel use stride between data
+            TODO(lf) dx and pw this should not be calculated in here
+            TODO(lf) xI should be the same type as x to avoid precision loss in high part of 64 biit ints
           */
           #define IMP_AGG(xtype, ytype) { \
             uint8_t *x = (uint8_t *) datax->ptr; \
             uint8_t *y = (uint8_t *) datay->ptr; \
             x0 = (float) *( (xtype*) x); \
             dx = (float) *( (xtype*) (x + (N-1)*datax->stride )) - x0; \
-            pw = dx / (p->params.screen.w - 2*padding); \
+            pw = dx / view_w; \
             xI = x0 + I*pw; \
             while (j < N && *( (xtype*) (x + j*datax->stride)) < xI) { \
               float yj = (float) *( (ytype*) (y + (j++)*datay->stride)); \
@@ -652,19 +655,20 @@ imp_draw * imp_next_draw(imp_ctx *ctx) {
           (void) var;
           i = j;
           I++;
-          
+
+          float px = xI - pw;
           if (n > 1) { // multiple points 
             float py = cmd->array.point[cmd->count-1].y;
             // make the longest line
             if (IMP_ABS(min - py) > IMP_ABS(max - py)) {
-              if (max > py) cmd->array.point[cmd->count++] = IMP_STRUCT(imp_v2){ xI, max };
-              cmd->array.point[cmd->count++] = IMP_STRUCT(imp_v2){ xI, min };
+              if (max > py) cmd->array.point[cmd->count++] = IMP_STRUCT(imp_v2){ px, max };
+              cmd->array.point[cmd->count++] = IMP_STRUCT(imp_v2){ px, min };
             } else {
-              if (min < py) cmd->array.point[cmd->count++] = IMP_STRUCT(imp_v2){ xI, min };
-              cmd->array.point[cmd->count++] = IMP_STRUCT(imp_v2){ xI, max };
+              if (min < py) cmd->array.point[cmd->count++] = IMP_STRUCT(imp_v2){ px, min };
+              cmd->array.point[cmd->count++] = IMP_STRUCT(imp_v2){ px, max };
             }
           } else if (n == 1) {
-            cmd->array.point[cmd->count++] = IMP_STRUCT(imp_v2){ xI, min };
+            cmd->array.point[cmd->count++] = IMP_STRUCT(imp_v2){ px, min };
           }
         }
       }
@@ -681,7 +685,7 @@ imp_draw * imp_next_draw(imp_ctx *ctx) {
         x * ((b - a)/(c - d)) + (a + (-d)((b - a)/(c - d)))
         x * xs + xo
       */
-      float xs = (p->params.screen.w - 2*padding) / dx;
+      float xs = view_w / dx;
       float xo = p->params.screen.x + padding - x0 * xs;
       float ys, yo;
       {
@@ -691,26 +695,58 @@ imp_draw * imp_next_draw(imp_ctx *ctx) {
           ymin = IMP_MIN(ymin, points[i].y);
           ymax = IMP_MAX(ymax, points[i].y);
         }
-        ys = (p->params.screen.h - 2*padding) / (ymax - ymin);
-        yo = p->params.screen.y + padding - ymin * ys;
+
+        // NOTE(lf) ymin and ymax are flipped here from what you might expect
+        // this is to translate to -y = up coords which are standard in graphics
+        ys = view_h / (ymin - ymax);
+        yo = (p->params.screen.y + padding - ymax * ys);
       }
-        
+      
       for (int i = 0; i < (int) cmd->count; i++) {
         points[i] = IMP_STRUCT(imp_v2) {
           points[i].x * xs + xo,
           points[i].y * ys + yo,
         };
       }
+
+      // Y=0 axis TODO(lf) disable 
+      {
+        imp_r2 r = IMP_STRUCT(imp_r2) {
+          p->params.screen.x + padding,
+          /* 0*ys + */ yo,
+          view_w,
+          1,
+        };
+        _imp_push_rect(ctx, r, black);
+      }
+
+      // X=0 axis
+      {
+        imp_r2 r = IMP_STRUCT(imp_r2) {
+          /* 0*xs + */ xo,
+          p->params.screen.y + padding,
+          1,
+          view_h,
+        };
+        _imp_push_rect(ctx, r, black);
+      }
+
+      
     }
+
+
+    _imp_push_rect(ctx, p->params.screen, white);
+
+    ctx->_next_cmd = ctx->_last_cmd;
+    ctx->_made_cmds = 1;
   }
 
   // commands generated, output from array
   imp_draw *out = ctx->_next_cmd;
   if (out) {
     ctx->_next_cmd = out->next;
-    IMP_ASSERT(ctx->_next_cmd || out == ctx->_last_cmd, "last command must match!");
   } else {
-    ctx->_last_cmd = 0;
+    ctx->_made_cmds = 0;
   }
   return out;
 

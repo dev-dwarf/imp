@@ -130,9 +130,9 @@ int main(int argc, char* argv[]) {
     } y1[N];
 
     for (int i = 0; i < N; i++) {
-      t[i] = (1./(float)N) * (i+time);
-      y1[i].data = 8192 * (sin ( 5 * (2 * M_PI * t[i]) ) + sin ( 71 * (2 * M_PI * t[i]) ) + sin ( 17 * (2 * M_PI * t[i]) ));
-    
+      t[i] = (1./(float)N) * (i+time) - 0.5;
+      // y1[i].data = 8192 * (-0.2 + sin ( 5 * (2 * M_PI * t[i]) ) + sin ( 71 * (2 * M_PI * t[i]) ) + sin ( 17 * (2 * M_PI * t[i]) ));
+      y1[i].data = 8192 * (-0.1 + sin ( 5 * (2 * M_PI * t[i]) ));
     }
     time++;
     
