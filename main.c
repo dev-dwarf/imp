@@ -56,16 +56,17 @@ int main(int argc, char* argv[]) {
   ASSERT_SDL(SDL_Init(SDL_INIT_VIDEO));
   ASSERT_SDL(window = SDL_CreateWindow("IMP SDL3", WIDTH, HEIGHT, SDL_WINDOW_RESIZABLE));
   ASSERT_SDL(renderer = SDL_CreateRenderer(window, NULL));
-  if (!SDL_GL_SetSwapInterval(-1)) {
-    ASSERT_SDL(SDL_GL_SetSwapInterval(1));
-  }
+  
+  // if (!SDL_GL_SetSwapInterval(-1)) {
+  //   ASSERT_SDL(SDL_GL_SetSwapInterval(1));
+  // }
   
   bool running = true;
 
   SDL_Palette *atlas_palette;
   ASSERT_SDL(atlas_surface = SDL_CreateSurfaceFrom(ATLAS_WIDTH, ATLAS_HEIGHT, SDL_PIXELFORMAT_INDEX8, ATLAS_DATA, ATLAS_WIDTH));
   ASSERT_SDL(atlas_palette = SDL_CreateSurfacePalette(atlas_surface));
-  for (int i = 0; i < 256; i++) { atlas_palette->colors[i] = STRUCT(SDL_Color){(uint8_t) i, (uint8_t) i, (uint8_t) i, (uint8_t) i}; }
+  for (int i = 0; i < 256; i++) { atlas_palette->colors[i] = IMP_STRUCT(SDL_Color){(uint8_t) i, (uint8_t) i, (uint8_t) i, (uint8_t) i}; }
   ASSERT_SDL(SDL_SetSurfacePalette(atlas_surface, atlas_palette));
   ASSERT_SDL(atlas_texture = SDL_CreateTextureFromSurface(renderer, atlas_surface));
   ASSERT_SDL(SDL_SetTextureBlendMode(atlas_texture, SDL_BLENDMODE_BLEND_PREMULTIPLIED));
@@ -115,24 +116,28 @@ int main(int argc, char* argv[]) {
     SDL_FRect r = {0, 0, ATLAS_WIDTH, ATLAS_HEIGHT};
     SDL_RenderTexture(renderer, atlas_texture, &r, &r);
     
-    imp_plot *p = imp_plot_start(&imp, STRUCT(imp_plot_params){ 
-      STRUCT(imp_text){ imp_strl("Plot 1") }, 
-      STRUCT(imp_r2){ (imp.input.screen.w-imp.input.screen.h)/2, 0, imp.input.screen.h, imp.input.screen.h },
+    imp_plot *p = imp_plot_start(&imp, IMP_STRUCT(imp_plot_params){ 
+      IMP_STRUCT(imp_text){ imp_strl("Plot 1") }, 
+      IMP_STRUCT(imp_r2){ (imp.input.screen.w-imp.input.screen.h)/2, 0, imp.input.screen.h, imp.input.screen.h },
     });
 
     #define N 100000
     float t[N];
-    int16_t y1[N];
+
+    struct {
+      int16_t data;
+      uint8_t garbage[32];
+    } y1[N];
 
     for (int i = 0; i < N; i++) {
       t[i] = (1./(float)N) * (i+time);
-      y1[i] = 8192 * (sin ( 5 * (2 * M_PI * t[i]) ) + sin ( 71 * (2 * M_PI * t[i]) ) + sin ( 17 * (2 * M_PI * t[i]) ));
+      y1[i].data = 8192 * (sin ( 5 * (2 * M_PI * t[i]) ) + sin ( 71 * (2 * M_PI * t[i]) ) + sin ( 17 * (2 * M_PI * t[i]) ));
     
     }
     time++;
     
-    imp_plot_x(p, STRUCT(imp_data){ imp_strl("time"), IMP_F32, &t, N });
-    imp_plot_y(p, STRUCT(imp_data){ imp_strl("y1"), IMP_S16, &y1 });
+    imp_plot_x(p, IMP_STRUCT(imp_data){ imp_strl("time"), IMP_F32, &t, N });
+    imp_plot_y(p, IMP_STRUCT(imp_data){ imp_strl("y1"), IMP_S16, &y1[0].data, 0, sizeof(*y1) });
 
     for (imp_draw *cmd; (cmd = imp_next_draw(&imp)); ) {
       ASSERT_SDL(SDL_SetRenderDrawColorFloat(renderer, cmd->color.r, cmd->color.g, cmd->color.b, cmd->color.a));

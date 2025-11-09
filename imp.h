@@ -1,5 +1,3 @@
-// TODO(lf) namespacing
-
 /* TODO(lf)
 how to deal with data cache memory?
 can keep list of used plots for current frame and collect garbage
@@ -10,6 +8,7 @@ cache data is:
   else plot.w*plot.h 
   we can collect garbage and compact 
 
+axes, labels, grid, etc
 
 LONG-TERM:
 - C11 _Generic Macros for plotting data in C
@@ -21,11 +20,11 @@ LONG-TERM:
 #include <stdint.h>
 #include <string.h> // memset, memcmp
 
-#define ARRAY_LENGTH(A) (sizeof(A)/sizeof(*(A)))
+#define IMP_ARRAY_LENGTH(A) (sizeof(A)/sizeof(*(A)))
 
-#define MIN(a,b) (((a)<(b))?(a):(b))
-#define MAX(a,b) (((a)>(b))?(a):(b))
-#define ABS(x) ((x) < 0 ? -(x) : (x))
+#define IMP_MIN(a,b) (((a)<(b))?(a):(b))
+#define IMP_MAX(a,b) (((a)>(b))?(a):(b))
+#define IMP_ABS(x) ((x) < 0 ? -(x) : (x))
 
 #if defined(__GNUC__)
 #define imp_unreachable __builtin_unreachable()
@@ -34,11 +33,11 @@ LONG-TERM:
 #endif
 
 #ifdef __cplusplus
-#define STRUCT(type) type
-#define STRUCT_ZERO(type) {}
+#define IMP_STRUCT(type) type
+#define IMP_STRUCT_ZERO(type) {}
 #else
-#define STRUCT(type) (type)
-#define STRUCT_ZERO(type) (type){0}
+#define IMP_STRUCT(type) (type)
+#define IMP_STRUCT_ZERO(type) (type){0}
 #endif
 
 #ifndef IMP_ASSERT
@@ -49,7 +48,7 @@ typedef struct imp_str {
   char *str;
   int len;
 } imp_str;
-#define imp_strl(literal) STRUCT(imp_str){ (char*) literal, sizeof(literal"") - 1}
+#define imp_strl(literal) IMP_STRUCT(imp_str){ (char*) literal, sizeof(literal"") - 1}
 
 typedef struct imp_v2 {
   float x, y; 
@@ -328,7 +327,7 @@ imp_draw* _imp_push_rect(imp_ctx *ctx, imp_r2 rect, imp_cf color) {
 }
 
 imp_draw* _imp_push_lines(imp_ctx *ctx, uint32_t cap, imp_cf color) {
-  cap = MAX(cap, 1);
+  cap = IMP_MAX(cap, 1);
   imp_draw *cmd;
   if ((cmd = (imp_draw *) imp_arena_take(&ctx->mem_cache, sizeof(imp_draw) + (cap-1)*sizeof(imp_v2), 0))) {
     cmd->type = IMP_DRAW_LINES;
@@ -544,9 +543,9 @@ imp_draw * imp_next_draw(imp_ctx *ctx) {
     imp_arena_reset(&ctx->mem_cache, 0);
 
     
-    imp_cf white = STRUCT(imp_cf){ 1.0, 1.0, 1.0, 1.0 };
-    imp_cf red = STRUCT(imp_cf){ 1.0, 0.0, 0.0, 1.0 };
-    imp_cf blue = STRUCT(imp_cf){ 0.0, 0.0, 1.0, 1.0 };
+    imp_cf white = IMP_STRUCT(imp_cf){ 1.0, 1.0, 1.0, 1.0 };
+    imp_cf red = IMP_STRUCT(imp_cf){ 1.0, 0.0, 0.0, 1.0 };
+    imp_cf blue = IMP_STRUCT(imp_cf){ 0.0, 0.0, 1.0, 1.0 };
     
 
     imp_r2 r = p->params.screen;
@@ -576,12 +575,6 @@ imp_draw * imp_next_draw(imp_ctx *ctx) {
 
       imp_data *datax = p->first_x;
       imp_data *datay = p->first_y;
-      
-      // TODO(lf) make this code generic across data types
-      // This is going to be really tough. Honestly dont really know how to do it
-      // without being balls slow or with tons of repeated code throughout this header
-      // maybe macros can save the day?
-
       int padding = 15; // padding, in pixels
 
       float x0 = 0, dx = 0;
@@ -593,6 +586,7 @@ imp_draw * imp_next_draw(imp_ctx *ctx) {
           float min = INFINITY;
           float max = -INFINITY;
           float sum = 0;
+          float sum2 = 0;
           int j = i;
           float pw, xI;
 
@@ -601,19 +595,23 @@ imp_draw * imp_next_draw(imp_ctx *ctx) {
 
             Making it type generic is annoying in C because of the many 
             combinations, so macros are used.
+
+            TODO(lf): investigate how the codegen is on this, and ways it can be made better
+            TODO(lf): make this kernel use stride between data
           */
           #define IMP_AGG(xtype, ytype) { \
-            xtype *x = (xtype *) datax->ptr; \
-            ytype *y = (ytype *) datay->ptr; \
-            x0 = x[0]; \
-            dx = (x[datax->n-1] - x0); \
+            uint8_t *x = (uint8_t *) datax->ptr; \
+            uint8_t *y = (uint8_t *) datay->ptr; \
+            x0 = (float) *( (xtype*) x); \
+            dx = (float) *( (xtype*) (x + (N-1)*datax->stride )) - x0; \
             pw = dx / (p->params.screen.w - 2*padding); \
             xI = x0 + I*pw; \
-            while (j < N && x[j] < xI) { \
-              float yj = (float) y[j++]; \
-              min = MIN(min, yj); \
-              max = MAX(max, yj); \
+            while (j < N && *( (xtype*) (x + j*datax->stride)) < xI) { \
+              float yj = (float) *( (ytype*) (y + (j++)*datay->stride)); \
+              min = IMP_MIN(min, yj); \
+              max = IMP_MAX(max, yj); \
               sum += yj; \
+              sum2 += yj*yj; \
             } \
           } 
           
@@ -649,22 +647,24 @@ imp_draw * imp_next_draw(imp_ctx *ctx) {
           #undef IMP_AGG
           
           int n = j - i;
-          float avg = sum / avg;
+          float avg = sum / n;
+          float var = (sum2 / n) - avg*avg;
+          (void) var;
           i = j;
           I++;
           
           if (n > 1) { // multiple points 
             float py = cmd->array.point[cmd->count-1].y;
             // make the longest line
-            if (ABS(min - py) > ABS(max - py)) {
-              if (max > py) cmd->array.point[cmd->count++] = STRUCT(imp_v2){ xI, max };
-              cmd->array.point[cmd->count++] = STRUCT(imp_v2){ xI, min };
+            if (IMP_ABS(min - py) > IMP_ABS(max - py)) {
+              if (max > py) cmd->array.point[cmd->count++] = IMP_STRUCT(imp_v2){ xI, max };
+              cmd->array.point[cmd->count++] = IMP_STRUCT(imp_v2){ xI, min };
             } else {
-              if (min < py) cmd->array.point[cmd->count++] = STRUCT(imp_v2){ xI, min };
-              cmd->array.point[cmd->count++] = STRUCT(imp_v2){ xI, max };
+              if (min < py) cmd->array.point[cmd->count++] = IMP_STRUCT(imp_v2){ xI, min };
+              cmd->array.point[cmd->count++] = IMP_STRUCT(imp_v2){ xI, max };
             }
           } else if (n == 1) {
-            cmd->array.point[cmd->count++] = STRUCT(imp_v2){ xI, min };
+            cmd->array.point[cmd->count++] = IMP_STRUCT(imp_v2){ xI, min };
           }
         }
       }
@@ -688,24 +688,21 @@ imp_draw * imp_next_draw(imp_ctx *ctx) {
         float ymin = INFINITY;
         float ymax = -INFINITY;
         for (int i = 0; i < (int) cmd->count; i++) {
-          ymin = MIN(ymin, points[i].y);
-          ymax = MAX(ymax, points[i].y);
+          ymin = IMP_MIN(ymin, points[i].y);
+          ymax = IMP_MAX(ymax, points[i].y);
         }
         ys = (p->params.screen.h - 2*padding) / (ymax - ymin);
         yo = p->params.screen.y + padding - ymin * ys;
       }
         
       for (int i = 0; i < (int) cmd->count; i++) {
-        points[i] = STRUCT(imp_v2) {
+        points[i] = IMP_STRUCT(imp_v2) {
           points[i].x * xs + xo,
           points[i].y * ys + yo,
         };
       }
     }
   }
-
-  
-
 
   // commands generated, output from array
   imp_draw *out = ctx->_next_cmd;
