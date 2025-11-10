@@ -36,6 +36,8 @@ LONG-TERM:
 #define imp_unreachable
 #define imp_inline
 #endif
+#define imp_unreachable
+#define imp_inline
 
 #ifdef __cplusplus
 #define IMP_STRUCT(type) type
@@ -355,15 +357,16 @@ imp_inline void _imp_pop_mat(imp_ctx *ctx) {
   ctx->_mat = ctx->_mat? ctx->_mat-1 : 0;
 }
 
-imp_draw * _imp_push_cmd(imp_ctx *ctx, imp_draw *cmd) {
+imp_draw* _imp_push_cmd(imp_ctx *ctx, imp_draw *cmd) {
   cmd->next = ctx->_last_cmd;
   ctx->_last_cmd = cmd; 
   return cmd;
 }
 
-imp_draw* _imp_push_rect(imp_ctx *ctx, imp_r2 rect, imp_cf color) {
+imp_draw* _imp_push_rect_raw(imp_ctx *ctx, imp_r2 rect, imp_cf color) {
   imp_draw *cmd = ctx->_last_cmd;
-  rect = _imp_mat_r2(ctx, rect);
+  rect.w = ceil(rect.w);
+  rect.h = ceil(rect.h);
   if (cmd && (cmd->_used == ctx->mem_cache.used)
   && (cmd->type == IMP_DRAW_RECTS)
   && (memcmp(&cmd->color, &color, sizeof(color)) == 0)) {
@@ -389,6 +392,46 @@ imp_draw* _imp_push_rect(imp_ctx *ctx, imp_r2 rect, imp_cf color) {
   }
 }
 
+imp_draw* _imp_plot_hline(imp_ctx *ctx, float y, float w, imp_cf color) {
+  imp_r2 N = ctx->_mats[ctx->_mat - 3];
+  imp_r2 M = ctx->_mats[ctx->_mat - 1];
+  imp_r2 rect = IMP_STRUCT(imp_r2) { 
+      N.x,
+      M.y + M.h*y,
+      N.w,
+      w,
+  };
+    
+  if (N.y < rect.y && rect.y < N.y + N.h ) {
+    return _imp_push_rect_raw(ctx, rect, color);
+  } else {
+    return 0;
+  }
+}
+
+imp_draw* _imp_plot_vline(imp_ctx *ctx, float x, float w, imp_cf color) {
+  imp_r2 N = ctx->_mats[ctx->_mat - 3];
+  imp_r2 M = _imp_mat(ctx);
+  imp_r2 rect = IMP_STRUCT(imp_r2) { 
+      M.x + M.w*x,
+      N.y,
+      w,
+      N.h,
+  };
+  if (N.x < rect.x && rect.x < N.x + N.w ) {
+    return _imp_push_rect_raw(ctx, rect, color);
+  } else {
+    return 0;
+  }
+}
+
+imp_draw* _imp_push_rect(imp_ctx *ctx, imp_r2 rect, imp_cf color) {
+  rect = _imp_mat_r2(ctx, rect);
+  return _imp_push_rect_raw(ctx, rect, color);
+}
+
+
+
 imp_draw* _imp_push_lines(imp_ctx *ctx, uint32_t cap, imp_cf color) {
   cap = IMP_MAX(cap, 1);
   imp_draw *cmd;
@@ -404,11 +447,11 @@ imp_draw* _imp_push_lines(imp_ctx *ctx, uint32_t cap, imp_cf color) {
 }
 
 void imp_ctx_update(imp_ctx *ctx, imp_input input);
-imp_draw *imp_next_draw(imp_ctx *ctx); // draw undrawn plots
+imp_draw* imp_next_draw(imp_ctx *ctx); // draw undrawn plots
 
-imp_plot *imp_plot_start(imp_ctx *ctx, imp_plot_params p);
-imp_data *imp_plot_x(imp_plot *p, imp_data x);
-imp_data *imp_plot_y(imp_plot *p, imp_data y);
+imp_plot* imp_plot_start(imp_ctx *ctx, imp_plot_params p);
+imp_data* imp_plot_x(imp_plot *p, imp_data x);
+imp_data* imp_plot_y(imp_plot *p, imp_data y);
 
 /* usage
 
@@ -618,10 +661,8 @@ imp_draw * imp_next_draw(imp_ctx *ctx) {
       imp_v2 margin = _imp_m(ctx, IMP_STRUCT(imp_v2){ .1, .1 }); // margin, in percent of screen
       imp_v2 _border_width = _imp_m(ctx, IMP_STRUCT(imp_v2){ 2, 2});
       float border_width = IMP_MAX(_border_width.x, _border_width.y);
+      imp_v2 padding = _imp_m(ctx, IMP_STRUCT(imp_v2){ 10, 10 });
       
-      // int view_w = p->params.screen.w - 2*padding.x;
-      // int view_h = p->params.screen.h - 2*padding.y;
-
       _imp_push_mat(ctx, IMP_STRUCT(imp_r2){ margin.x, margin.y, 1.0 - 2*margin.x, 1.0 - 2*margin.y });
       if (p->params.style & IMP_DRAW_BORDER) {
         imp_r2 l = IMP_STRUCT(imp_r2) { 0, 0, border_width, 1 };
@@ -636,160 +677,156 @@ imp_draw * imp_next_draw(imp_ctx *ctx) {
 
       imp_data *datax = p->first_x;
       imp_data *datay = p->first_y;
-          
-
-      // float x0 = 0, dx = 0;
-      // {
-      //   int I = 0;
-      //   int N = (int) datax->n;
-      //   for (int i = 0; i < (int) N; ) {
-      //     // aggregate points
-      //     float min = INFINITY;
-      //     float max = -INFINITY;
-      //     float sum = 0;
-      //     float sum2 = 0;
-      //     int j = i;
-      //     float pw, xI;
-
-      //     /* NOTE(lf) the core of this code is just simple aggregation
-      //       that for a slice of X's, calculates basic stats on the Y's:
-
-      //       Making it type generic is annoying in C because of the many 
-      //       combinations, so macros are used.
-
-      //       TODO(lf): investigate how the codegen is on this, and ways it can be made better
-      //       TODO(lf) dx and pw this should not be calculated in here
-      //       TODO(lf) xI should be the same type as x to avoid precision loss in high part of 64 biit ints
-      //     */
-      //     #define IMP_AGG(xtype, ytype) { \
-      //       uint8_t *x = (uint8_t *) datax->ptr; \
-      //       uint8_t *y = (uint8_t *) datay->ptr; \
-      //       x0 = (float) *( (xtype*) x); \
-      //       dx = (float) *( (xtype*) (x + (N-1)*datax->stride )) - x0; \
-      //       pw = dx / view_w; \
-      //       xI = x0 + I*pw; \
-      //       while (j < N && *( (xtype*) (x + j*datax->stride)) < xI) { \
-      //         float yj = (float) *( (ytype*) (y + (j++)*datay->stride)); \
-      //         min = IMP_MIN(min, yj); \
-      //         max = IMP_MAX(max, yj); \
-      //         sum += yj; \
-      //         sum2 += yj*yj; \
-      //       } \
-      //     } 
-          
-      //     #define IMP_YSWITCH(xtype) switch (datay->type) { \
-      //       case IMP_F32: IMP_AGG(xtype, float    ) break; \
-      //       case IMP_F64: IMP_AGG(xtype, double   ) break; \
-      //       case IMP_S8:  IMP_AGG(xtype, int8_t   ) break; \
-      //       case IMP_S16: IMP_AGG(xtype, int16_t  ) break; \
-      //       case IMP_S32: IMP_AGG(xtype, int32_t  ) break; \
-      //       case IMP_S64: IMP_AGG(xtype, int64_t  ) break; \
-      //       case IMP_U8:  IMP_AGG(xtype, uint8_t  ) break; \
-      //       case IMP_U16: IMP_AGG(xtype, uint16_t ) break; \
-      //       case IMP_U32: IMP_AGG(xtype, uint32_t ) break; \
-      //       case IMP_U64: IMP_AGG(xtype, uint64_t ) break; \
-      //       default: { imp_unreachable; } break; \
-      //     }
-
-      //     switch (datax->type) {
-      //       case IMP_F32: IMP_YSWITCH( float    ) break;
-      //       case IMP_F64: IMP_YSWITCH( double   ) break;
-      //       case IMP_S8:  IMP_YSWITCH( int8_t   ) break;
-      //       case IMP_S16: IMP_YSWITCH( int16_t  ) break;
-      //       case IMP_S32: IMP_YSWITCH( int32_t  ) break;
-      //       case IMP_S64: IMP_YSWITCH( int64_t  ) break;
-      //       case IMP_U8:  IMP_YSWITCH( uint8_t  ) break;
-      //       case IMP_U16: IMP_YSWITCH( uint16_t ) break;
-      //       case IMP_U32: IMP_YSWITCH( uint32_t ) break;
-      //       case IMP_U64: IMP_YSWITCH( uint64_t ) break;
-      //       default: imp_unreachable; break;
-      //     }
-
-      //     #undef IMP_YSWITCH
-      //     #undef IMP_AGG
-          
-      //     int n = j - i;
-      //     float avg = sum / n;
-      //     float var = (sum2 / n) - avg*avg;
-      //     (void) var;
-      //     i = j;
-      //     I++;
-
-      //     float px = xI - pw;
-      //     if (n > 1) { // multiple points 
-      //       float py = cmd->array.point[cmd->count-1].y;
-      //       // make the longest line
-      //       if (IMP_ABS(min - py) > IMP_ABS(max - py)) {
-      //         if (max > py) cmd->array.point[cmd->count++] = IMP_STRUCT(imp_v2){ px, max };
-      //         cmd->array.point[cmd->count++] = IMP_STRUCT(imp_v2){ px, min };
-      //       } else {
-      //         if (min < py) cmd->array.point[cmd->count++] = IMP_STRUCT(imp_v2){ px, min };
-      //         cmd->array.point[cmd->count++] = IMP_STRUCT(imp_v2){ px, max };
-      //       }
-      //     } else if (n == 1) {
-      //       cmd->array.point[cmd->count++] = IMP_STRUCT(imp_v2){ px, min };
-      //     }
-      //   }
-      // }
-
-      // // TODO(lf) let user specifically set the yscale,
-      // // but otherwise scale it to fit the plot
-
-      // // TODO(lf): zoom + pan requires that this be stored across frames and modifiable
-      // // TODO(lf): limit aggregated points to what is actually in view
-
-      // imp_v2 *points = cmd->array.point; // helpful for nnd debugger
-      // /* REMAP -> FMA
-      //   a + (b-a) * (x - d)/(c - d)
-      //   x * ((b - a)/(c - d)) + (a + (-d)((b - a)/(c - d)))
-      //   x * xs + xo
-      // */
-      // float xs = view_w / dx;
-      // float xo = p->params.screen.x + padding.x - x0 * xs;
-      // float ys, yo;
-      // {
-      //   float ymin = INFINITY;
-      //   float ymax = -INFINITY;
-      //   for (int i = 0; i < (int) cmd->count; i++) {
-      //     ymin = IMP_MIN(ymin, points[i].y);
-      //     ymax = IMP_MAX(ymax, points[i].y);
-      //   }
-
-      //   // NOTE(lf) ymin and ymax are flipped here from what you might expect
-      //   // this is to translate to -y = up coords which are standard in graphics
-      //   // but opposite from the expectations for plots.
-      //   ys = view_h / (ymin - ymax);
-      //   yo = (p->params.screen.y + padding.y - ymax * ys);
-      // }
       
-      // for (int i = 0; i < (int) cmd->count; i++) {
-      //   points[i] = IMP_STRUCT(imp_v2) {
-      //     points[i].x * xs + xo,
-      //     points[i].y * ys + yo,
-      //   };
-      // }
+      _imp_push_mat(ctx, IMP_STRUCT(imp_r2){ padding.x, padding.y, 1.0 - 2*padding.x, 1.0 - 2*padding.y });
 
-      // if (p->params.style & IMP_DRAW_X_AXIS) {
-      //   imp_r2 r = IMP_STRUCT(imp_r2) {
-      //     p->params.screen.x + padding.x,
-      //     /* 0*ys + */ yo,
-      //     view_w,
-      //     1,
-      //   };
-      //   _imp_push_rect(ctx, r, black);
-      // }
+      imp_r2 plot_M = _imp_mat(ctx);
 
-      // if (p->params.style & IMP_DRAW_Y_AXIS) {
-      //   imp_r2 r = IMP_STRUCT(imp_r2) {
-      //     /* 0*xs + */ xo,
-      //     p->params.screen.y + padding.y,
-      //     1,
-      //     view_h,
-      //   };
-      //   _imp_push_rect(ctx, r, black);
-      // }
+      bool view_set = false;
+          
+      float x0 = 0, dx = 0;
+      {
+        int I = 0;
+        int N = (int) datax->n;
+        for (int i = 0; i < (int) N; ) {
+          // aggregate points
+          float min = INFINITY;
+          float max = -INFINITY;
+          float sum = 0;
+          float sum2 = 0;
+          int j = i;
+          float pw, xI;
+
+          /* NOTE(lf) the core of this code is just simple aggregation
+            that for a slice of X's, calculates basic stats on the Y's:
+
+            Making it type generic is annoying in C because of the many 
+            combinations, so macros are used.
+
+            TODO(lf): investigate how the codegen is on this, and ways it can be made better
+            TODO(lf) dx and pw this should not be calculated in here
+            TODO(lf) xI should be the same type as x to avoid precision loss in high part of 64 biit ints
+          */
+          #define IMP_AGG(xtype, ytype) { \
+            uint8_t *x = (uint8_t *) datax->ptr; \
+            uint8_t *y = (uint8_t *) datay->ptr; \
+            x0 = (float) *( (xtype*) x); \
+            dx = (float) *( (xtype*) (x + (N-1)*datax->stride )) - x0; \
+            pw = dx / plot_M.w; \
+            xI = x0 + I*pw; \
+            while (j < N && *( (xtype*) (x + j*datax->stride)) < xI) { \
+              float yj = (float) *( (ytype*) (y + (j++)*datay->stride)); \
+              min = IMP_MIN(min, yj); \
+              max = IMP_MAX(max, yj); \
+              sum += yj; \
+              sum2 += yj*yj; \
+            } \
+          } 
+          
+          #define IMP_YSWITCH(xtype) switch (datay->type) { \
+            case IMP_F32: IMP_AGG(xtype, float    ) break; \
+            case IMP_F64: IMP_AGG(xtype, double   ) break; \
+            case IMP_S8:  IMP_AGG(xtype, int8_t   ) break; \
+            case IMP_S16: IMP_AGG(xtype, int16_t  ) break; \
+            case IMP_S32: IMP_AGG(xtype, int32_t  ) break; \
+            case IMP_S64: IMP_AGG(xtype, int64_t  ) break; \
+            case IMP_U8:  IMP_AGG(xtype, uint8_t  ) break; \
+            case IMP_U16: IMP_AGG(xtype, uint16_t ) break; \
+            case IMP_U32: IMP_AGG(xtype, uint32_t ) break; \
+            case IMP_U64: IMP_AGG(xtype, uint64_t ) break; \
+            default: { imp_unreachable; } break; \
+          }
+
+          switch (datax->type) {
+            case IMP_F32: IMP_YSWITCH( float    ) break;
+            case IMP_F64: IMP_YSWITCH( double   ) break;
+            case IMP_S8:  IMP_YSWITCH( int8_t   ) break;
+            case IMP_S16: IMP_YSWITCH( int16_t  ) break;
+            case IMP_S32: IMP_YSWITCH( int32_t  ) break;
+            case IMP_S64: IMP_YSWITCH( int64_t  ) break;
+            case IMP_U8:  IMP_YSWITCH( uint8_t  ) break;
+            case IMP_U16: IMP_YSWITCH( uint16_t ) break;
+            case IMP_U32: IMP_YSWITCH( uint32_t ) break;
+            case IMP_U64: IMP_YSWITCH( uint64_t ) break;
+            default: imp_unreachable; break;
+          }
+
+          #undef IMP_YSWITCH
+          #undef IMP_AGG
+          
+          int n = j - i;
+          float avg = sum / n;
+          float var = (sum2 / n) - avg*avg;
+          (void) var;
+          i = j;
+          I++;
+
+          float px = xI - pw;
+          if (n > 1) { // multiple points 
+            float py = cmd->array.point[cmd->count-1].y;
+            // make the longest line
+            if (IMP_ABS(min - py) > IMP_ABS(max - py)) {
+              if (max > py) cmd->array.point[cmd->count++] = IMP_STRUCT(imp_v2){ px, max };
+              cmd->array.point[cmd->count++] = IMP_STRUCT(imp_v2){ px, min };
+            } else {
+              if (min < py) cmd->array.point[cmd->count++] = IMP_STRUCT(imp_v2){ px, min };
+              cmd->array.point[cmd->count++] = IMP_STRUCT(imp_v2){ px, max };
+            }
+          } else if (n == 1) {
+            cmd->array.point[cmd->count++] = IMP_STRUCT(imp_v2){ px, min };
+          }
+        }
+      }
+
+      // TODO(lf) let user specifically set the yscale,
+      // but otherwise scale it to fit the plot
+
+      // TODO(lf): zoom + pan requires that this be stored across frames and modifiable
+      // TODO(lf): limit aggregated points to wha t is actually in view
+
+      imp_v2 *points = cmd->array.point; // helpful for nnd debugger
+      /* REMAP -> FMA
+        a + (b-a) * (x - d)/(c - d)
+        x * ((b - a)/(c - d)) + (a + (-d)((b - a)/(c - d)))
+        x * xs + xo
+      */
       
+      float xs, xo, ys, yo, dy, y0;
+      {
+        xs = 1 / dx;
+        xo = -x0 * xs;
+      
+        float ymin = INFINITY;
+        float ymax = -INFINITY;
+        for (int i = 0; i < (int) cmd->count; i++) {
+          ymin = IMP_MIN(ymin, points[i].y);
+          ymax = IMP_MAX(ymax, points[i].y);
+        }
 
+        // NOTE(lf) ymin and ymax are flipped here from what you might expect
+        // this is to translate to -y = up coords which are standard in graphics
+        // but opposite from the expectations for plots.
+        dy = ymin - ymax;
+        y0 = ymax;
+        ys = 1 / dy;
+        yo = -y0 * ys;
+      }
+      _imp_push_mat(ctx, IMP_STRUCT(imp_r2){ xo, yo, xs, ys });
+
+      for (int i = 0; i < (int) cmd->count; i++) {
+        points[i] = _imp_mat_v2(ctx, points[i]);
+      }
+
+      if (p->params.style & IMP_DRAW_X_AXIS) {
+        _imp_plot_hline(ctx, 0, 1, black);
+      }
+
+      if (p->params.style & IMP_DRAW_Y_AXIS) {
+        _imp_plot_vline(ctx, 0, 1, black);
+      }
+
+      _imp_pop_mat(ctx); // view
+      _imp_pop_mat(ctx); // padding
       _imp_pop_mat(ctx); // margin
       
     }
